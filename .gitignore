@@ -1,0 +1,52 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.pytest_cache/
+.mypy_cache/
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Environment variables
+.env
+.env.*
+!.env.example
+
+# Jupyter
+.ipynb_checkpoints/
+
+# NISR microdata - NEVER commit
+data/raw/
+data/processed/
+*.dta
+*.sav
+
+# Generated ML artifacts
+models/*.pkl
+models/*.joblib
+models/*.onnx
+models/*.pt
+models/*.pth
+
+# Node
+node_modules/
+.next/
+out/
+
+# Build
+dist/
+build/
+
+# Logs
+*.log
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
