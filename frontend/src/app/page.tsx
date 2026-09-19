@@ -1,70 +1,322 @@
+﻿"use client";
+
 import Link from "next/link";
+import { useEffect, useMemo, useState } from "react";
 import { DashboardShell, PageIntro } from "../components/DashboardShell";
-import { getSummary } from "../lib/api";
+import { getDashboard } from "../lib/api";
+import type { DashboardData, StrategyResult } from "../lib/api";
 
-function formatNumber(value: number) {
-  return new Intl.NumberFormat("en-US").format(value);
+const strategyLabels: Record<string, string> = {
+  Random: "Random targeting",
+  Geographic: "Geographic targeting",
+  Rule: "Transparent rule-based",
+  Logistic: "Logistic targeting",
+  RF: "Random Forest",
+};
+
+const strategyOrder = ["Random", "Geographic", "Rule", "Logistic", "RF"];
+
+function percent(value: number) {
+  return `${(value * 100).toFixed(1)}%`;
 }
 
-function formatPercent(value: number) {
-  return `${value.toFixed(1)}%`;
+function number(value: number) {
+  return new Intl.NumberFormat("en-US").format(Math.round(value));
 }
 
-export default async function Home() {
-  const summary = await getSummary();
-  const metrics = [
-    { label: "Households analyzed", value: formatNumber(summary.totalHouseholds), note: "Records in current dataset", tone: "bg-[#123b43]" },
-    { label: "Predicted high risk", value: formatNumber(summary.highRiskHouseholds), note: "Model classification", tone: "bg-[#087f76]" },
-    { label: "Estimated coverage", value: formatPercent(summary.estimatedCoverage), note: "At current operating point", tone: "bg-[#c8862c]" },
-    { label: "Exclusion error", value: formatPercent(summary.exclusionError), note: "Eligible households missed", tone: "bg-[#b8544c]" },
-    { label: "Inclusion error", value: formatPercent(summary.inclusionError), note: "Non-eligible households included", tone: "bg-[#63716d]" },
-  ];
+function getResult(
+  results: StrategyResult[],
+  strategy: string,
+  budget: number,
+) {
+  return results.find(
+    (result) =>
+      result.strategy === strategy &&
+      Math.abs(result.budget - budget) < 0.001,
+  );
+}
+
+function MetricCard({
+  label,
+  value,
+  detail,
+}: {
+  label: string;
+  value: string;
+  detail: string;
+}) {
+  return (
+    <article className="border border-[#d9e0dc] bg-[#fbfcfb] p-6">
+      <p className="font-mono text-[10px] uppercase tracking-[0.16em] text-[#63716d]">
+        {label}
+      </p>
+      <p className="mt-3 text-3xl font-semibold tracking-tight text-[#183f4a]">
+        {value}
+      </p>
+      <p className="mt-2 text-xs leading-5 text-[#63716d]">{detail}</p>
+    </article>
+  );
+}
+
+export default function HomePage() {
+  const [data, setData] = useState<DashboardData | null>(null);
+  const [budget, setBudget] = useState(0.1);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    getDashboard()
+      .then(setData)
+      .catch((err) => {
+        setError(
+          err instanceof Error
+            ? err.message
+            : "Unable to load dashboard data.",
+        );
+      })
+      .finally(() => setIsLoading(false));
+  }, []);
+
+  const selectedResults = useMemo(() => {
+    if (!data) return [];
+
+    return strategyOrder
+      .map((strategy) => getResult(data.results, strategy, budget))
+      .filter((result): result is StrategyResult => Boolean(result));
+  }, [data, budget]);
+
+  const summary = useMemo(() => {
+    if (selectedResults.length === 0) return null;
+
+    const selected = selectedResults[0];
+
+    return {
+      households: selected.households_selected,
+      observedCoverage: selectedResults.reduce(
+        (max, result) => Math.max(max, result.coverage),
+        0,
+      ),
+      severeCoverage: selectedResults.reduce(
+        (max, result) => Math.max(max, result.severe_poor_coverage),
+        0,
+      ),
+      strategies: selectedResults.length,
+    };
+  }, [selectedResults]);
 
   return (
     <DashboardShell active="Overview">
       <main className="mx-auto max-w-[1440px] px-6 py-10 lg:px-10 lg:py-14">
-        <PageIntro eyebrow="Decision support / Overview" title="Targeting accuracy at a glance." description="Review the model's current operating point, then explore how coverage and targeting errors change under different thresholds." />
+        <PageIntro
+          eyebrow="NISR Hackathon / SPTA Simulator"
+          title="Social Protection Targeting Accuracy Simulator"
+          description="Explore how alternative targeting strategies perform when household selection is constrained by a fixed budget."
+        />
 
-        <section className="mb-8 grid gap-4 lg:grid-cols-[1fr_320px]" aria-label="Model summary">
-          <div className="relative overflow-hidden bg-[#123b43] p-7 text-white sm:p-9">
-            <div className="relative z-10 max-w-xl">
-              <p className="font-mono text-[10px] uppercase tracking-[0.18em] text-[#a8e0d5]">Current operating point</p>
-              <p className="mt-4 text-5xl font-semibold tracking-[-0.05em]">{formatPercent(summary.estimatedCoverage)}</p>
-              <p className="mt-2 text-sm text-[#d2e1de]">estimated coverage across the analyzed population</p>
-              <Link href="/simulator" className="mt-7 inline-flex items-center bg-[#e7c46a] px-4 py-3 text-sm font-semibold text-[#123b43] transition-colors hover:bg-[#f1d98f]">Explore threshold tradeoffs <span className="ml-6" aria-hidden="true">-&gt;</span></Link>
-            </div>
-            <div className="absolute -right-20 -top-24 h-72 w-72 rounded-full border-[28px] border-[#21616a] opacity-70" aria-hidden="true" />
-            <div className="absolute -bottom-32 right-24 h-64 w-64 rounded-full border-[22px] border-[#087f76] opacity-50" aria-hidden="true" />
+        <section className="mb-6 flex flex-col gap-4 border border-[#d9e0dc] bg-[#fbfcfb] p-5 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <p className="font-mono text-[10px] uppercase tracking-[0.18em] text-[#63716d]">
+              Evaluation budget
+            </p>
+            <p className="mt-2 text-sm text-[#63716d]">
+              Select the share of households available for targeting.
+            </p>
           </div>
-          <div className="border border-[#d7e0dc] bg-[#f8faf9] p-7 sm:p-9">
-            <p className="font-mono text-[10px] uppercase tracking-[0.18em] text-[#63716d]">Model snapshot</p>
-            <dl className="mt-6 space-y-5">
-              <div className="flex items-end justify-between gap-4 border-b border-[#d7e0dc] pb-4"><dt className="text-sm text-[#63716d]">Model version</dt><dd className="font-mono text-sm font-semibold text-[#123b43]">{summary.modelVersion}</dd></div>
-              <div className="flex items-end justify-between gap-4 border-b border-[#d7e0dc] pb-4"><dt className="text-sm text-[#63716d]">Data refresh</dt><dd className="font-mono text-sm font-semibold text-[#123b43]">{summary.lastUpdated}</dd></div>
-              <div className="flex items-end justify-between gap-4"><dt className="text-sm text-[#63716d]">Status</dt><dd className="flex items-center gap-2 text-sm font-semibold text-[#087f76]"><span className="h-2 w-2 rounded-full bg-[#2d9b83]" />Available</dd></div>
-            </dl>
+
+          <div className="flex gap-2">
+            {[0.05, 0.1, 0.2].map((value) => (
+              <button
+                key={value}
+                type="button"
+                onClick={() => setBudget(value)}
+                className={`border px-4 py-2 text-sm font-semibold ${
+                  budget === value
+                    ? "border-[#087f76] bg-[#087f76] text-white"
+                    : "border-[#bfcac5] bg-white text-[#183f4a] hover:border-[#087f76]"
+                }`}
+              >
+                {percent(value)}
+              </button>
+            ))}
           </div>
         </section>
 
-        <section aria-labelledby="headline-metrics">
-          <div className="mb-4 flex items-center justify-between"><h2 id="headline-metrics" className="text-sm font-semibold text-[#123b43]">Headline metrics</h2><span className="font-mono text-[10px] uppercase tracking-[0.16em] text-[#63716d]">Current model output</span></div>
-          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
-            {metrics.map((metric) => <article key={metric.label} className="border border-[#d7e0dc] bg-[#f8faf9] p-5 shadow-[0_2px_8px_rgba(18,59,67,0.04)]"><div className={`mb-7 h-1 w-10 ${metric.tone}`} /><p className="text-sm font-medium text-[#63716d]">{metric.label}</p><p className="mt-2 text-3xl font-semibold tracking-[-0.04em] text-[#123b43]">{metric.value}</p><p className="mt-2 text-xs leading-5 text-[#63716d]">{metric.note}</p></article>)}
-          </div>
-        </section>
+        {isLoading && (
+          <section className="border border-[#d9e0dc] bg-[#fbfcfb] p-8">
+            <p className="text-sm text-[#63716d]">
+              Loading simulator results...
+            </p>
+          </section>
+        )}
 
-        <section className="mt-10 grid gap-4 lg:grid-cols-3" aria-label="Analysis tools">
-          <ToolLink href="/simulator" eyebrow="01 / Explore" title="Test a threshold" description="See how projected coverage and targeting errors move as the risk threshold changes." />
-          <ToolLink href="/households" eyebrow="02 / Review" title="Inspect records" description="Search anonymized household risk records by identifier, district, and category." />
-          <ToolLink href="/scenarios" eyebrow="03 / Compare" title="Compare scenarios" description="Place named operating points side by side before discussing a policy choice." />
-        </section>
+        {error && (
+          <section className="border border-[#e8b6b0] bg-[#fff5f3] p-6">
+            <h2 className="font-semibold text-[#8d3d37]">
+              Dashboard data unavailable
+            </h2>
+            <p className="mt-2 text-sm text-[#8d3d37]">{error}</p>
+            <p className="mt-3 text-xs text-[#63716d]">
+              Make sure the FastAPI backend is running on port 8000.
+            </p>
+          </section>
+        )}
 
-        <p className="mt-10 max-w-3xl border-l-2 border-[#c8862c] pl-4 text-sm leading-6 text-[#63716d]">A model estimate is not an eligibility decision. Predictions carry uncertainty and should be reviewed alongside policy context.</p>
+        {data && summary && !error && (
+          <>
+            <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+              <MetricCard
+                label="Households selected"
+                value={number(summary.households)}
+                detail={`At the ${percent(budget)} evaluation budget`}
+              />
+
+              <MetricCard
+                label="Observed poor coverage"
+                value={percent(summary.observedCoverage)}
+                detail="Highest observed coverage among the displayed strategies"
+              />
+
+              <MetricCard
+                label="Severe-poor coverage"
+                value={percent(summary.severeCoverage)}
+                detail="Highest observed severe-poor coverage at this budget"
+              />
+
+              <MetricCard
+                label="Strategies evaluated"
+                value={number(summary.strategies)}
+                detail="Random, geographic, rule-based, logistic and RF"
+              />
+            </section>
+
+            <section className="mt-6 border border-[#d9e0dc] bg-[#fbfcfb]">
+              <div className="flex flex-col gap-4 border-b border-[#d9e0dc] p-6 sm:flex-row sm:items-end sm:justify-between">
+                <div>
+                  <p className="font-mono text-[10px] uppercase tracking-[0.18em] text-[#63716d]">
+                    Strategy comparison
+                  </p>
+                  <h2 className="mt-2 text-xl font-semibold text-[#183f4a]">
+                    Observed results at {percent(budget)}
+                  </h2>
+                  <p className="mt-2 max-w-2xl text-sm leading-6 text-[#63716d]">
+                    Results are calculated against the poverty evaluation
+                    labels under the selected household budget.
+                  </p>
+                </div>
+
+                <Link
+                  href="/simulator"
+                  className="inline-flex items-center justify-center border border-[#087f76] px-4 py-2 text-sm font-semibold text-[#087f76] hover:bg-[#eff9f6]"
+                >
+                  Open simulator
+                </Link>
+              </div>
+
+              <div className="overflow-x-auto">
+                <table className="w-full min-w-[760px] border-collapse text-left">
+                  <thead>
+                    <tr className="border-b border-[#d9e0dc] bg-[#f4f6f5] text-xs uppercase tracking-[0.12em] text-[#63716d]">
+                      <th className="px-5 py-4 font-semibold">Strategy</th>
+                      <th className="px-5 py-4 font-semibold">Poor coverage</th>
+                      <th className="px-5 py-4 font-semibold">
+                        Severe-poor coverage
+                      </th>
+                      <th className="px-5 py-4 font-semibold">Precision</th>
+                      <th className="px-5 py-4 font-semibold">
+                        Exclusion error
+                      </th>
+                    </tr>
+                  </thead>
+
+                  <tbody>
+                    {selectedResults.map((result) => (
+                      <tr
+                        key={result.strategy}
+                        className="border-b border-[#e6ebe8] text-sm last:border-0"
+                      >
+                        <td className="px-5 py-4 font-semibold text-[#183f4a]">
+                          {strategyLabels[result.strategy] ?? result.strategy}
+                        </td>
+                        <td className="px-5 py-4 font-mono text-[#087f76]">
+                          {percent(result.coverage)}
+                        </td>
+                        <td className="px-5 py-4 font-mono text-[#087f76]">
+                          {percent(result.severe_poor_coverage)}
+                        </td>
+                        <td className="px-5 py-4 font-mono text-[#183f4a]">
+                          {percent(result.precision)}
+                        </td>
+                        <td className="px-5 py-4 font-mono text-[#8d3d37]">
+                          {percent(result.exclusion_error)}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </section>
+
+            <section className="mt-6 grid gap-5 lg:grid-cols-3">
+              <article className="border border-[#d9e0dc] bg-[#fbfcfb] p-6">
+                <p className="font-mono text-[10px] uppercase tracking-[0.16em] text-[#63716d]">
+                  Simulation
+                </p>
+                <h2 className="mt-2 text-lg font-semibold text-[#183f4a]">
+                  Budget-constrained targeting
+                </h2>
+                <p className="mt-2 text-sm leading-6 text-[#63716d]">
+                  Examine how the selected budget changes household coverage,
+                  precision and targeting errors.
+                </p>
+                <Link
+                  href="/simulator"
+                  className="mt-5 inline-block text-sm font-semibold text-[#087f76]"
+                >
+                  View simulator →
+                </Link>
+              </article>
+
+              <article className="border border-[#d9e0dc] bg-[#fbfcfb] p-6">
+                <p className="font-mono text-[10px] uppercase tracking-[0.16em] text-[#63716d]">
+                  Scenarios
+                </p>
+                <h2 className="mt-2 text-lg font-semibold text-[#183f4a]">
+                  Compare evaluation settings
+                </h2>
+                <p className="mt-2 text-sm leading-6 text-[#63716d]">
+                  Review all observed strategies at the available 5%, 10% and
+                  20% targeting budgets.
+                </p>
+                <Link
+                  href="/scenarios"
+                  className="mt-5 inline-block text-sm font-semibold text-[#087f76]"
+                >
+                  View scenarios →
+                </Link>
+              </article>
+
+              <article className="border border-[#d9e0dc] bg-[#fbfcfb] p-6">
+                <p className="font-mono text-[10px] uppercase tracking-[0.16em] text-[#63716d]">
+                  Robustness
+                </p>
+                <h2 className="mt-2 text-lg font-semibold text-[#183f4a]">
+                  Repeated-split validation
+                </h2>
+                <p className="mt-2 text-sm leading-6 text-[#63716d]">
+                  Review variation across five train/test splits for the
+                  machine-learning strategies.
+                </p>
+              </article>
+            </section>
+          </>
+        )}
+
+        <p className="mt-6 text-xs leading-5 text-[#63716d]">
+          Evaluation results describe observed performance on the current
+          test-set simulation. They do not establish individual eligibility
+          or determine a social protection policy decision.
+        </p>
       </main>
     </DashboardShell>
   );
-}
-
-function ToolLink({ href, eyebrow, title, description }: { href: string; eyebrow: string; title: string; description: string }) {
-  return <Link href={href} className="group border border-[#d7e0dc] bg-[#f8faf9] p-6 transition-colors hover:border-[#087f76] hover:bg-white"><p className="font-mono text-[10px] font-semibold uppercase tracking-[0.16em] text-[#087f76]">{eyebrow}</p><h2 className="mt-5 text-xl font-semibold text-[#123b43]">{title}<span className="ml-3 text-[#087f76] transition-transform group-hover:ml-4" aria-hidden="true">-&gt;</span></h2><p className="mt-3 text-sm leading-6 text-[#63716d]">{description}</p></Link>;
 }

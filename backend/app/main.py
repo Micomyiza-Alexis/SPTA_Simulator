@@ -2,7 +2,7 @@ import os
 
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
-
+from fastapi.middleware.cors import CORSMiddleware
 from backend.app.api.dashboard import router as dashboard_router
 from backend.app.api.results import router as results_router
 from backend.app.api.robustness import router as robustness_router
@@ -15,7 +15,18 @@ app = FastAPI(
     ),
     version="0.3.0",
 )
-
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[
+        "http://localhost:3000",
+        "http://localhost:3001",
+        "http://127.0.0.1:3000",
+        "http://127.0.0.1:3001",
+    ],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 class LoginRequest(BaseModel):
     username: str

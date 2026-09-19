@@ -1,41 +1,62 @@
-import {
-  compareMockScenarios,
-  getMockHouseholds,
-  getMockSimulation,
-  getMockSummary,
-  type Household,
-  type Scenario,
-  type SimulationResult,
-  type Summary,
-} from "./mockApi";
+export type StrategyResult = {
+  strategy: string;
+  budget: number;
+  households_selected: number;
+  weighted_selected: number;
+  weighted_poor_selected: number;
+  coverage: number;
+  severe_poor_coverage: number;
+  precision: number;
+  inclusion_error: number;
+  exclusion_error: number;
+};
 
-const apiBaseUrl = process.env.NEXT_PUBLIC_API_URL;
+export type ModelRobustness = {
+  strategy: string;
+  splits: number;
+  roc_auc_mean: number;
+  roc_auc_std: number;
+  pr_auc_mean: number;
+  pr_auc_std: number;
+};
 
-export async function getSummary(): Promise<Summary> {
-  if (!apiBaseUrl) return getMockSummary();
+export type TargetingRobustness = {
+  strategy: string;
+  budget: number;
+  splits: number;
+  coverage_mean: number;
+  coverage_std: number;
+  severe_poor_coverage_mean: number;
+  severe_poor_coverage_std: number;
+  precision_mean: number;
+  precision_std: number;
+  inclusion_error_mean: number;
+  inclusion_error_std: number;
+  exclusion_error_mean: number;
+  exclusion_error_std: number;
+};
 
-  const response = await fetch(`${apiBaseUrl}/api/summary`, { cache: "no-store" });
-  if (!response.ok) throw new Error(`Summary request failed: ${response.status}`);
-  return response.json() as Promise<Summary>;
-}
+export type DashboardData = {
+  strategies: string[];
+  budgets: number[];
+  results: StrategyResult[];
+  model_robustness: ModelRobustness[];
+  targeting_robustness: TargetingRobustness[];
+};
 
-export async function simulate(threshold: number): Promise<SimulationResult> {
-  if (!apiBaseUrl) return getMockSimulation(threshold);
-  const response = await fetch(`${apiBaseUrl}/api/simulate`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ threshold }) });
-  if (!response.ok) throw new Error(`Simulation request failed: ${response.status}`);
-  return response.json() as Promise<SimulationResult>;
-}
+const apiBaseUrl =
+  process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000";
 
-export async function getHouseholds(): Promise<Household[]> {
-  if (!apiBaseUrl) return getMockHouseholds();
-  const response = await fetch(`${apiBaseUrl}/api/households`, { cache: "no-store" });
-  if (!response.ok) throw new Error(`Households request failed: ${response.status}`);
-  return response.json() as Promise<Household[]>;
-}
+export async function getDashboard(): Promise<DashboardData> {
+  const response = await fetch(`${apiBaseUrl}/api/dashboard`, {
+    cache: "no-store",
+  });
 
-export async function compareScenarios(scenarios: Array<Pick<Scenario, "name" | "threshold">>): Promise<Scenario[]> {
-  if (!apiBaseUrl) return compareMockScenarios(scenarios);
-  const response = await fetch(`${apiBaseUrl}/api/scenarios/compare`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(scenarios) });
-  if (!response.ok) throw new Error(`Scenario comparison failed: ${response.status}`);
-  return response.json() as Promise<Scenario[]>;
+  if (!response.ok) {
+    throw new Error(
+      `Dashboard request failed: ${response.status}`
+    );
+  }
+
+  return response.json() as Promise<DashboardData>;
 }
