@@ -1,4 +1,10 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+This is a [Next.js](https://nextjs.org) project for the Social Protection Targeting Accuracy Simulator.
+
+## Demo access
+
+The `/login` screen is a cosmetic demo gate, not production authentication. It uses one shared password from the server-side `DEMO_PASSWORD` environment variable and an expiring cookie; it does not create accounts, store personal data, hash passwords, or provide real security. To run locally, copy `.env.example` to `.env.local` and set the shared password.
+
+If this became a production system, it would need proper user and role management, securely hashed credentials or an established identity provider, server-side session management, audit controls, and the project's privacy and security review.
 
 ## Getting Started
 
