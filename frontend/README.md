@@ -6,6 +6,10 @@ The `/login` screen is a cosmetic demo gate, not production authentication. It u
 
 If this became a production system, it would need proper user and role management, securely hashed credentials or an established identity provider, server-side session management, audit controls, and the project's privacy and security review.
 
+## Deploying the demo login
+
+For a deployment with the FastAPI backend, set `DEMO_PASSWORD` on the backend service and set `BACKEND_API_URL` on the frontend service to the backend's public URL. Redeploy both services after changing these variables. The frontend login route proxies credentials to `POST /auth/login`; the password is never stored in the repository.
+
 ## Getting Started
 
 First, run the development server:

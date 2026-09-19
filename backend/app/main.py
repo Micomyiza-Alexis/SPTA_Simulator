@@ -1,4 +1,7 @@
-from fastapi import FastAPI
+import os
+
+from fastapi import FastAPI, HTTPException
+from pydantic import BaseModel
 
 from backend.app.api.dashboard import router as dashboard_router
 from backend.app.api.results import router as results_router
@@ -12,6 +15,24 @@ app = FastAPI(
     ),
     version="0.3.0",
 )
+
+
+class LoginRequest(BaseModel):
+    username: str
+    password: str
+
+
+@app.post("/auth/login")
+def login(credentials: LoginRequest):
+    configured_password = os.getenv("DEMO_PASSWORD")
+
+    if not configured_password:
+        raise HTTPException(status_code=503, detail="Demo password is not configured on the server.")
+
+    if not credentials.username.strip() or credentials.password != configured_password:
+        raise HTTPException(status_code=401, detail="Incorrect demo password.")
+
+    return {"ok": True}
 
 
 @app.get("/health")
