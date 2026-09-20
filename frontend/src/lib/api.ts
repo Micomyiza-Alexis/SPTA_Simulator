@@ -47,6 +47,26 @@ export type DashboardData = {
 const apiBaseUrl =
   process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000";
 
+// Canonical strategy identifiers as produced by
+// scripts/build_strategy_comparison.py and served by the backend.
+// Every page must use these exact keys when looking up results —
+// do not shorten them locally, or lookups silently return nothing.
+export const STRATEGY_KEYS = [
+  "Random Targeting",
+  "Geographic Targeting",
+  "Rule-Based Targeting",
+  "Logistic Targeting",
+  "Random Forest Targeting",
+] as const;
+
+export const STRATEGY_LABELS: Record<string, string> = {
+  "Random Targeting": "Random baseline",
+  "Geographic Targeting": "Geographic",
+  "Rule-Based Targeting": "Rule-based",
+  "Logistic Targeting": "Logistic",
+  "Random Forest Targeting": "Random Forest",
+};
+
 export async function getDashboard(): Promise<DashboardData> {
   const response = await fetch(`${apiBaseUrl}/api/dashboard`, {
     cache: "no-store",

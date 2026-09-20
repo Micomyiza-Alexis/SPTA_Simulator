@@ -15,33 +15,22 @@ import {
 } from "recharts";
 import {
   getDashboard,
+  STRATEGY_KEYS,
+  STRATEGY_LABELS as strategyLabels,
   type DashboardData,
   type StrategyResult,
+  type TargetingRobustness,
 } from "../../lib/api";
 import { DashboardShell, PageIntro } from "../../components/DashboardShell";
 
-const strategyLabels: Record<string, string> = {
-  Random: "Random baseline",
-  Geographic: "Geographic",
-  "Rule-Based": "Rule-based",
-  Logistic: "Logistic",
-  "Random Forest": "Random Forest",
-};
-
-const strategyOrder = [
-  "Random",
-  "Geographic",
-  "Rule-Based",
-  "Logistic",
-  "Random Forest",
-];
+const strategyOrder: readonly string[] = STRATEGY_KEYS;
 
 const strategyColors: Record<string, string> = {
-  Random: "#8a9691",
-  Geographic: "#c8862c",
-  "Rule-Based": "#087f76",
-  Logistic: "#183f4a",
-  "Random Forest": "#5b6f91",
+  "Random Targeting": "#8a9691",
+  "Geographic Targeting": "#c8862c",
+  "Rule-Based Targeting": "#087f76",
+  "Logistic Targeting": "#183f4a",
+  "Random Forest Targeting": "#5b6f91",
 };
 
 function percent(value: number) {
@@ -64,6 +53,22 @@ function getResult(
       item.strategy === strategy &&
       Math.abs(item.budget - budget) < 0.001
   );
+}
+
+function getTargetingRobustness(
+  data: DashboardData | null,
+  strategy: string,
+  budget: number
+): TargetingRobustness | undefined {
+  return data?.targeting_robustness.find(
+    (item) =>
+      item.strategy === strategy &&
+      Math.abs(item.budget - budget) < 0.001
+  );
+}
+
+function meanStd(mean: number, std: number) {
+  return `${(mean * 100).toFixed(1)}% ± ${(std * 100).toFixed(1)}%`;
 }
 
 export default function SimulatorPage() {
@@ -116,7 +121,17 @@ export default function SimulatorPage() {
     };
   });
 
-  const selectedLogistic = getResult(data, "Logistic", budget);
+  const selectedLogistic = getResult(data, "Logistic Targeting", budget);
+
+  const robustnessResults = useMemo(() => {
+    if (!data) return [];
+
+    return strategyOrder
+      .map((strategy) => getTargetingRobustness(data, strategy, budget))
+      .filter((result): result is TargetingRobustness => Boolean(result));
+  }, [data, budget]);
+
+  const modelRobustness = data?.model_robustness ?? [];
 
   return (
     <DashboardShell active="Simulator">
@@ -394,7 +409,7 @@ export default function SimulatorPage() {
                               (key) =>
                                 strategyLabels[key] ===
                                 series.strategy
-                            ) ?? "Random"
+                            ) ?? "Random Targeting"
                           ]
                         }
                         strokeWidth={2}
@@ -478,6 +493,163 @@ export default function SimulatorPage() {
                 </table>
               </div>
             </section>
+
+            {robustnessResults.length > 0 && (
+              <section
+                className="mb-7 border border-[#d9e0dc] bg-[#fbfcfb] p-6"
+                aria-labelledby="targeting-robustness-title"
+              >
+                <div>
+                  <h2
+                    id="targeting-robustness-title"
+                    className="text-lg font-semibold text-[#183f4a]"
+                  >
+                    Targeting robustness at {Math.round(budget * 100)}%
+                  </h2>
+                  <p className="mt-1 max-w-3xl text-sm leading-6 text-[#63716d]">
+                    Each figure is the mean ± standard deviation across{" "}
+                    {robustnessResults[0]?.splits ?? 5} repeated
+                    stratified train/test splits, showing how much
+                    targeting performance varies with the sample rather
+                    than a single split.
+                  </p>
+                </div>
+
+                <div className="mt-5 overflow-x-auto">
+                  <table className="w-full min-w-[820px] border-collapse text-left text-sm">
+                    <thead>
+                      <tr className="border-b border-[#d9e0dc] text-xs uppercase tracking-[0.08em] text-[#63716d]">
+                        <th className="px-3 py-3 font-semibold">
+                          Strategy
+                        </th>
+                        <th className="px-3 py-3 font-semibold">
+                          Poor coverage
+                        </th>
+                        <th className="px-3 py-3 font-semibold">
+                          Severe poor
+                        </th>
+                        <th className="px-3 py-3 font-semibold">
+                          Precision
+                        </th>
+                        <th className="px-3 py-3 font-semibold">
+                          Inclusion error
+                        </th>
+                        <th className="px-3 py-3 font-semibold">
+                          Exclusion error
+                        </th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {robustnessResults.map((result) => (
+                        <tr
+                          key={result.strategy}
+                          className="border-b border-[#edf0ee] last:border-0"
+                        >
+                          <td className="px-3 py-4 font-semibold text-[#183f4a]">
+                            {strategyLabels[result.strategy] ??
+                              result.strategy}
+                          </td>
+                          <td className="px-3 py-4 text-[#63716d]">
+                            {meanStd(
+                              result.coverage_mean,
+                              result.coverage_std
+                            )}
+                          </td>
+                          <td className="px-3 py-4 text-[#63716d]">
+                            {meanStd(
+                              result.severe_poor_coverage_mean,
+                              result.severe_poor_coverage_std
+                            )}
+                          </td>
+                          <td className="px-3 py-4 text-[#63716d]">
+                            {meanStd(
+                              result.precision_mean,
+                              result.precision_std
+                            )}
+                          </td>
+                          <td className="px-3 py-4 text-[#63716d]">
+                            {meanStd(
+                              result.inclusion_error_mean,
+                              result.inclusion_error_std
+                            )}
+                          </td>
+                          <td className="px-3 py-4 text-[#63716d]">
+                            {meanStd(
+                              result.exclusion_error_mean,
+                              result.exclusion_error_std
+                            )}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </section>
+            )}
+
+            {modelRobustness.length > 0 && (
+              <section
+                className="mb-7 border border-[#d9e0dc] bg-[#fbfcfb] p-6"
+                aria-labelledby="model-robustness-title"
+              >
+                <div>
+                  <h2
+                    id="model-robustness-title"
+                    className="text-lg font-semibold text-[#183f4a]"
+                  >
+                    Model robustness
+                  </h2>
+                  <p className="mt-1 max-w-3xl text-sm leading-6 text-[#63716d]">
+                    Discrimination performance of the underlying models
+                    across repeated splits. This does not depend on the
+                    selection budget above.
+                  </p>
+                </div>
+
+                <div className="mt-5 overflow-x-auto">
+                  <table className="w-full min-w-[520px] border-collapse text-left text-sm">
+                    <thead>
+                      <tr className="border-b border-[#d9e0dc] text-xs uppercase tracking-[0.08em] text-[#63716d]">
+                        <th className="px-3 py-3 font-semibold">
+                          Model
+                        </th>
+                        <th className="px-3 py-3 font-semibold">
+                          ROC-AUC
+                        </th>
+                        <th className="px-3 py-3 font-semibold">
+                          PR-AUC
+                        </th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {modelRobustness.map((result) => (
+                        <tr
+                          key={result.strategy}
+                          className="border-b border-[#edf0ee] last:border-0"
+                        >
+                          <td className="px-3 py-4 font-semibold text-[#183f4a]">
+                            {strategyLabels[result.strategy] ??
+                              result.strategy}
+                          </td>
+                          <td className="px-3 py-4 text-[#63716d]">
+                            {meanStd(
+                              result.roc_auc_mean,
+                              result.roc_auc_std
+                            )}
+                          </td>
+                          <td className="px-3 py-4 text-[#63716d]">
+                            {meanStd(
+                              result.pr_auc_mean,
+                              result.pr_auc_std
+                            )}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </section>
+            )}
           </>
         )}
 

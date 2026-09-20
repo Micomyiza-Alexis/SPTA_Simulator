@@ -1,5 +1,6 @@
 import Image from "next/image";
 import Link from "next/link";
+import { LogoutButton } from "./LogoutButton";
 
 const navigation = [
   { label: "Overview", href: "/", shortLabel: "Home" },
@@ -30,7 +31,7 @@ export function DashboardShell({ active, children }: { active: string; children:
         <div className="mt-auto border-t border-white/10 px-7 py-6">
           <p className="font-mono text-[10px] uppercase tracking-[0.16em] text-[#8ab8b5]">Research prototype</p>
           <p className="mt-2 text-xs leading-5 text-[#d2e1de]">Targeting accuracy and coverage analysis for policy teams.</p>
-          <p className="mt-5 font-mono text-[10px] text-[#8ab8b5]">SPTA v0.1.0</p>
+          <p className="mt-5 font-mono text-[10px] text-[#8ab8b5]">SPTA v0.3.0</p>
         </div>
       </aside>
 
@@ -48,6 +49,7 @@ export function DashboardShell({ active, children }: { active: string; children:
             <div className="flex items-center gap-3">
               <span className="hidden font-mono text-[10px] uppercase tracking-[0.14em] text-[#63716d] sm:inline">Latest refresh</span>
               <span className="font-mono text-xs font-semibold text-[#123b43]">2026-09-12</span>
+              <LogoutButton />
             </div>
           </div>
         </header>

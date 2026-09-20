@@ -3,18 +3,10 @@
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { DashboardShell, PageIntro } from "../components/DashboardShell";
-import { getDashboard } from "../lib/api";
+import { getDashboard, STRATEGY_KEYS, STRATEGY_LABELS } from "../lib/api";
 import type { DashboardData, StrategyResult } from "../lib/api";
 
-const strategyLabels: Record<string, string> = {
-  Random: "Random targeting",
-  Geographic: "Geographic targeting",
-  Rule: "Transparent rule-based",
-  Logistic: "Logistic targeting",
-  RF: "Random Forest",
-};
-
-const strategyOrder = ["Random", "Geographic", "Rule", "Logistic", "RF"];
+const strategyOrder: readonly string[] = STRATEGY_KEYS;
 
 function percent(value: number) {
   return `${(value * 100).toFixed(1)}%`;
@@ -235,7 +227,7 @@ export default function HomePage() {
                         className="border-b border-[#e6ebe8] text-sm last:border-0"
                       >
                         <td className="px-5 py-4 font-semibold text-[#183f4a]">
-                          {strategyLabels[result.strategy] ?? result.strategy}
+                          {STRATEGY_LABELS[result.strategy] ?? result.strategy}
                         </td>
                         <td className="px-5 py-4 font-mono text-[#087f76]">
                           {percent(result.coverage)}
