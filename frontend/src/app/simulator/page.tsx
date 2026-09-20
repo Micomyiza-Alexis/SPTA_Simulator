@@ -1,204 +1,716 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { Bar, BarChart, CartesianGrid, Line, LineChart, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
+import { useEffect, useMemo, useState } from "react";
+import {
+  Bar,
+  BarChart,
+  CartesianGrid,
+  Legend,
+  Line,
+  LineChart,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from "recharts";
+import {
+  getDashboard,
+  STRATEGY_KEYS,
+  STRATEGY_LABELS as strategyLabels,
+  type DashboardData,
+  type StrategyResult,
+  type TargetingRobustness,
+} from "../../lib/api";
 import { DashboardShell, PageIntro } from "../../components/DashboardShell";
-import { simulate } from "../../lib/api";
-import type { SimulationResult } from "../../lib/mockApi";
 
-const CURRENT_THRESHOLD = 50;
-const chartAxis = { fill: "#5c6c68", fontSize: 11 };
+const strategyOrder: readonly string[] = STRATEGY_KEYS;
+
+const strategyColors: Record<string, string> = {
+  "Random Targeting": "#8a9691",
+  "Geographic Targeting": "#c8862c",
+  "Rule-Based Targeting": "#087f76",
+  "Logistic Targeting": "#183f4a",
+  "Random Forest Targeting": "#5b6f91",
+};
+
+function percent(value: number) {
+  return `${(value * 100).toFixed(1)}%`;
+}
+
+function number(value: number) {
+  return new Intl.NumberFormat("en-US", {
+    maximumFractionDigits: 0,
+  }).format(value);
+}
+
+function getResult(
+  data: DashboardData | null,
+  strategy: string,
+  budget: number
+): StrategyResult | undefined {
+  return data?.results.find(
+    (item) =>
+      item.strategy === strategy &&
+      Math.abs(item.budget - budget) < 0.001
+  );
+}
+
+function getTargetingRobustness(
+  data: DashboardData | null,
+  strategy: string,
+  budget: number
+): TargetingRobustness | undefined {
+  return data?.targeting_robustness.find(
+    (item) =>
+      item.strategy === strategy &&
+      Math.abs(item.budget - budget) < 0.001
+  );
+}
+
+function meanStd(mean: number, std: number) {
+  return `${(mean * 100).toFixed(1)}% ± ${(std * 100).toFixed(1)}%`;
+}
 
 export default function SimulatorPage() {
-  const [threshold, setThreshold] = useState(CURRENT_THRESHOLD);
-  const [result, setResult] = useState<SimulationResult | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
+  const [data, setData] = useState<DashboardData | null>(null);
+  const [budget, setBudget] = useState(0.1);
   const [error, setError] = useState("");
 
   useEffect(() => {
-    const timeout = window.setTimeout(() => {
-      setIsLoading(true);
-      setError("");
-      simulate(threshold)
-        .then(setResult)
-        .catch(() => setError("The simulation could not be updated. Please try again."))
-        .finally(() => setIsLoading(false));
-    }, 300);
-    return () => window.clearTimeout(timeout);
-  }, [threshold]);
+    getDashboard()
+      .then(setData)
+      .catch(() =>
+        setError(
+          "The dashboard data could not be loaded. Make sure the FastAPI backend is running."
+        )
+      );
+  }, []);
 
-  const metrics = result
-    ? [
-        { label: "Coverage", value: `${result.coverage.toFixed(1)}%`, note: "Population reached", color: "#0b8a80" },
-        { label: "Exclusion error", value: `${result.exclusionError.toFixed(1)}%`, note: "Eligible households missed", color: "#b8544c" },
-        { label: "Inclusion error", value: `${result.inclusionError.toFixed(1)}%`, note: "Non-eligible households included", color: "#c8862c" },
-      ]
-    : [];
+  const selectedResults = useMemo(() => {
+    if (!data) return [];
+
+    return strategyOrder
+      .map((strategy) => getResult(data, strategy, budget))
+      .filter((result): result is StrategyResult => Boolean(result));
+  }, [data, budget]);
+
+  const comparisonData = selectedResults.map((result) => ({
+    strategy: strategyLabels[result.strategy] ?? result.strategy,
+    coverage: Number((result.coverage * 100).toFixed(1)),
+    severePoorCoverage: Number(
+      (result.severe_poor_coverage * 100).toFixed(1)
+    ),
+    precision: Number((result.precision * 100).toFixed(1)),
+  }));
+
+  const coverageByBudget = strategyOrder.map((strategy) => {
+    const points = (data?.budgets ?? []).map((currentBudget) => {
+      const result = getResult(data, strategy, currentBudget);
+
+      return {
+        budget: `${Math.round(currentBudget * 100)}%`,
+        coverage: result
+          ? Number((result.coverage * 100).toFixed(1))
+          : null,
+      };
+    });
+
+    return {
+      strategy: strategyLabels[strategy] ?? strategy,
+      points,
+    };
+  });
+
+  const selectedLogistic = getResult(data, "Logistic Targeting", budget);
+
+  const robustnessResults = useMemo(() => {
+    if (!data) return [];
+
+    return strategyOrder
+      .map((strategy) => getTargetingRobustness(data, strategy, budget))
+      .filter((result): result is TargetingRobustness => Boolean(result));
+  }, [data, budget]);
+
+  const modelRobustness = data?.model_robustness ?? [];
 
   return (
     <DashboardShell active="Simulator">
-      <main className="mx-auto max-w-[1440px] px-5 py-8 lg:px-10 lg:py-10">
+      <main className="mx-auto max-w-[1440px] px-6 py-10 lg:px-10 lg:py-14">
         <PageIntro
           eyebrow="Decision support / Simulator"
-          title="Examine the targeting tradeoff."
-          description="Adjust the risk threshold to see how projected coverage and targeting errors move together. Results update after a short pause while you drag the control."
+          title="Explore targeting performance under a constrained budget."
+          description="Select a budget share to examine how different targeting strategies perform against the same poverty reference. Results shown here come from the finalized SPTA simulation."
         />
-        <div className="grid gap-5 xl:grid-cols-[300px_1fr]">
-          <section className="panel h-fit rounded-[28px] p-6" aria-labelledby="controls-title">
-            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#5c6c68]">Model control</p>
-            <h2 id="controls-title" className="mt-3 text-lg font-semibold text-[#0f3a42]">
-              Risk threshold
-            </h2>
-            <p className="mt-2 text-sm leading-6 text-[#5c6c68]">
-              Households at or above this score are classified as higher risk. The available mock/API contract currently supports this parameter only.
-            </p>
-            <output className="mt-8 block text-4xl font-semibold tracking-tight text-[#0f3a42]" htmlFor="risk-threshold">
-              {threshold}
-              <span className="ml-1 text-xl text-[#5c6c68]">/ 100</span>
-            </output>
-            <label htmlFor="risk-threshold" className="sr-only">
-              Risk threshold from 0 to 100
-            </label>
-            <input
-              id="risk-threshold"
-              aria-label="Risk threshold"
-              type="range"
-              min="0"
-              max="100"
-              value={threshold}
-              onChange={(event) => setThreshold(Number(event.target.value))}
-              className="threshold-slider mt-7 w-full"
-            />
-            <div className="mt-2 flex justify-between font-mono text-[10px] text-[#5c6c68]">
-              <span>0 lower risk</span>
-              <span>100 higher risk</span>
-            </div>
-            <button
-              type="button"
-              onClick={() => setThreshold(CURRENT_THRESHOLD)}
-              disabled={threshold === CURRENT_THRESHOLD}
-              className="mt-8 w-full rounded-full border border-[#0b8a80] px-4 py-2.5 text-sm font-semibold text-[#0b8a80] transition hover:bg-[#eff9f6] disabled:cursor-not-allowed disabled:border-[#d7e2de] disabled:text-[#9aa8a3]"
-            >
-              Reset to current operating point
-            </button>
-            <div className="mt-8 rounded-2xl bg-[#f7faf9] p-4">
-              <p className="text-xs font-semibold text-[#0f3a42]">Current request</p>
-              <p className="mt-2 font-mono text-xs text-[#5c6c68]">POST /api/simulate</p>
-              <p className="mt-1 font-mono text-xs text-[#5c6c68]">threshold: {threshold}</p>
-            </div>
-          </section>
 
-          <section className="space-y-5">
-            <div className="grid gap-3 sm:grid-cols-3">
-              {metrics.map((metric) => (
-                <article key={metric.label} className="panel relative rounded-3xl p-5">
-                  <div className="mb-6 h-1.5 w-10 rounded-full" style={{ backgroundColor: metric.color }} />
-                  <p className="text-sm font-medium text-[#5c6c68]">{metric.label}</p>
-                  <p className="mt-2 text-3xl font-semibold tracking-tight text-[#0f3a42]">{metric.value}</p>
-                  <p className="mt-2 text-xs leading-5 text-[#5c6c68]">{metric.note}</p>
-                  {isLoading && (
-                    <span className="absolute right-4 top-4 rounded-full bg-[#e8f6f3] px-2 py-0.5 font-mono text-[9px] uppercase tracking-[0.12em] text-[#0b8a80]">
-                      Updating
-                    </span>
-                  )}
-                </article>
-              ))}
-              {!result && <div className="panel col-span-full rounded-3xl p-5 text-sm text-[#5c6c68]">Loading current model output...</div>}
-            </div>
-            {error && (
-              <p role="alert" className="rounded-2xl border border-[#e8b6b0] bg-[#fff5f3] px-4 py-3 text-sm text-[#8d3d37]">
-                {error}
+        {error && (
+          <div
+            role="alert"
+            className="mb-6 border-l-2 border-[#b8544c] bg-[#fff5f3] px-4 py-3 text-sm text-[#8d3d37]"
+          >
+            {error}
+          </div>
+        )}
+
+        <section
+          className="mb-7 border border-[#d9e0dc] bg-[#fbfcfb] p-6"
+          aria-labelledby="budget-title"
+        >
+          <div className="flex flex-col justify-between gap-5 md:flex-row md:items-center">
+            <div>
+              <p className="font-mono text-[10px] uppercase tracking-[0.18em] text-[#63716d]">
+                Resource constraint
               </p>
-            )}
-
-            <div className="grid gap-5 lg:grid-cols-2">
-              <ChartCard title="Coverage vs exclusion error" description="Each point is a threshold operating point.">
-                <ResponsiveContainer width="100%" height="100%">
-                  <LineChart data={result?.tradeoff ?? []} margin={{ top: 10, right: 18, left: 0, bottom: 10 }}>
-                    <CartesianGrid stroke="#e3e9e5" vertical={false} />
-                    <XAxis
-                      type="number"
-                      dataKey="coverage"
-                      domain={[35, 100]}
-                      unit="%"
-                      tick={chartAxis}
-                      label={{ value: "Coverage", position: "insideBottom", offset: -4, fill: "#5c6c68", fontSize: 11 }}
-                    />
-                    <YAxis unit="%" tick={chartAxis} label={{ value: "Exclusion error", angle: -90, position: "insideLeft", fill: "#5c6c68", fontSize: 11 }} />
-                    <Tooltip formatter={(value) => [`${Number(value).toFixed(1)}%`, "Exclusion error"]} labelFormatter={(value) => `Coverage: ${Number(value).toFixed(1)}%`} />
-                    <Line type="monotone" dataKey="exclusionError" stroke="#b8544c" strokeWidth={2.5} dot={{ fill: "#b8544c", r: 3 }} name="Exclusion error" />
-                  </LineChart>
-                </ResponsiveContainer>
-              </ChartCard>
-              <ChartCard title="Coverage vs inclusion error" description="The same operating points show the other error tradeoff.">
-                <ResponsiveContainer width="100%" height="100%">
-                  <LineChart data={result?.tradeoff ?? []} margin={{ top: 10, right: 18, left: 0, bottom: 10 }}>
-                    <CartesianGrid stroke="#e3e9e5" vertical={false} />
-                    <XAxis
-                      type="number"
-                      dataKey="coverage"
-                      domain={[35, 100]}
-                      unit="%"
-                      tick={chartAxis}
-                      label={{ value: "Coverage", position: "insideBottom", offset: -4, fill: "#5c6c68", fontSize: 11 }}
-                    />
-                    <YAxis unit="%" tick={chartAxis} label={{ value: "Inclusion error", angle: -90, position: "insideLeft", fill: "#5c6c68", fontSize: 11 }} />
-                    <Tooltip formatter={(value) => [`${Number(value).toFixed(1)}%`, "Inclusion error"]} labelFormatter={(value) => `Coverage: ${Number(value).toFixed(1)}%`} />
-                    <Line type="monotone" dataKey="inclusionError" stroke="#c8862c" strokeWidth={2.5} dot={{ fill: "#c8862c", r: 3 }} name="Inclusion error" />
-                  </LineChart>
-                </ResponsiveContainer>
-              </ChartCard>
+              <h2
+                id="budget-title"
+                className="mt-2 text-xl font-semibold text-[#183f4a]"
+              >
+                Households that can be selected
+              </h2>
+              <p className="mt-1 max-w-2xl text-sm leading-6 text-[#63716d]">
+                The budget represents the share of test households available
+                for selection. The simulator does not change the underlying
+                models; it changes the selection constraint.
+              </p>
             </div>
 
-            <div className="panel rounded-[28px] p-6">
-              <div className="flex flex-col justify-between gap-2 sm:flex-row sm:items-start">
-                <div>
-                  <h2 className="text-lg font-semibold text-[#0f3a42]">Risk score distribution</h2>
-                  <p className="mt-1 text-sm text-[#5c6c68]">Anonymized household counts by model score band.</p>
-                </div>
-                <p className="rounded-full bg-[#e8f6f3] px-3 py-1 font-mono text-[10px] uppercase tracking-[0.12em] text-[#0b8a80]">Current cut: {threshold}</p>
-              </div>
-              <div className="mt-6 h-[290px] w-full">
+            <div
+              className="flex shrink-0 gap-2"
+              role="group"
+              aria-label="Budget"
+            >
+              {(data?.budgets ?? [0.05, 0.1, 0.2]).map((value) => {
+                const active = Math.abs(value - budget) < 0.001;
+
+                return (
+                  <button
+                    key={value}
+                    type="button"
+                    onClick={() => setBudget(value)}
+                    className={`min-w-20 border px-5 py-3 text-sm font-semibold transition ${
+                      active
+                        ? "border-[#183f4a] bg-[#183f4a] text-white"
+                        : "border-[#cfd8d4] bg-white text-[#63716d] hover:border-[#087f76] hover:text-[#183f4a]"
+                    }`}
+                  >
+                    {Math.round(value * 100)}%
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        </section>
+
+        {selectedResults.length > 0 && (
+          <>
+            <section
+              className="mb-7 grid gap-3 sm:grid-cols-2 xl:grid-cols-4"
+              aria-label="Selected budget summary"
+            >
+              <MetricCard
+                label="Budget"
+                value={`${Math.round(budget * 100)}%`}
+                note="Share of test households selected"
+                tone="#183f4a"
+              />
+              <MetricCard
+                label="Households selected"
+                value={number(selectedResults[0].households_selected)}
+                note="Fixed selection count at this budget"
+                tone="#087f76"
+              />
+              <MetricCard
+                label="Highest observed poor coverage"
+                value={percent(
+                  Math.max(
+                    ...selectedResults.map(
+                      (result) => result.coverage
+                    )
+                  )
+                )}
+                note="Across displayed strategies"
+                tone="#c8862c"
+              />
+              <MetricCard
+                label="Logistic poor coverage"
+                value={
+                  selectedLogistic
+                    ? percent(selectedLogistic.coverage)
+                    : "—"
+                }
+                note="Reference model result"
+                tone="#5b6f91"
+              />
+            </section>
+
+            <section className="mb-7 grid gap-5 lg:grid-cols-2">
+              <ChartCard
+                title="Poor household coverage"
+                description={`Share of poor households reached at a ${Math.round(
+                  budget * 100
+                )}% selection budget.`}
+              >
                 <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={result?.distribution ?? []} margin={{ top: 10, right: 20, left: 0, bottom: 10 }}>
-                    <CartesianGrid stroke="#e3e9e5" vertical={false} />
-                    <XAxis
-                      type="number"
-                      dataKey="score"
-                      domain={[0, 100]}
-                      tickFormatter={(value) => `${Number(value) - 5}-${value}`}
-                      tick={chartAxis}
-                      label={{ value: "Risk score", position: "insideBottom", offset: -4, fill: "#5c6c68", fontSize: 11 }}
+                  <BarChart
+                    data={comparisonData}
+                    margin={{ top: 10, right: 15, left: 0, bottom: 10 }}
+                  >
+                    <CartesianGrid
+                      stroke="#e3e9e5"
+                      vertical={false}
                     />
-                    <YAxis tick={chartAxis} label={{ value: "Households", angle: -90, position: "insideLeft", fill: "#5c6c68", fontSize: 11 }} />
-                    <Tooltip labelFormatter={(value) => `Score band: ${Number(value) - 5}-${value}`} />
-                    <ReferenceLine x={threshold} stroke="#0f3a42" strokeWidth={2} label={{ value: "Threshold", position: "insideTopRight", fill: "#0f3a42", fontSize: 11 }} />
-                    <Bar dataKey="households" name="Households" fill="#0f3a42" barSize={24} radius={[6, 6, 0, 0]} />
+                    <XAxis
+                      dataKey="strategy"
+                      tick={{
+                        fill: "#63716d",
+                        fontSize: 10,
+                      }}
+                      interval={0}
+                      angle={-15}
+                      textAnchor="end"
+                      height={55}
+                    />
+                    <YAxis
+                      domain={[0, 100]}
+                      unit="%"
+                      tick={{
+                        fill: "#63716d",
+                        fontSize: 11,
+                      }}
+                    />
+                    <Tooltip
+                      formatter={(value) => [
+                        `${Number(value).toFixed(1)}%`,
+                        "Poor coverage",
+                      ]}
+                    />
+                    <Bar
+                      dataKey="coverage"
+                      name="Poor coverage"
+                      fill="#087f76"
+                      radius={[2, 2, 0, 0]}
+                    />
                   </BarChart>
                 </ResponsiveContainer>
-              </div>
-            </div>
+              </ChartCard>
 
-            <div className="panel rounded-[28px] p-6">
-              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#5c6c68]">Interpretation note</p>
-              <p className="mt-3 max-w-3xl text-sm leading-6 text-[#5c6c68]">
-                These are projected effects of a rule change on modeled risk, not a guarantee of the accuracy of model classifications. Review threshold
-                choices alongside policy context and uncertainty.
-              </p>
-            </div>
-          </section>
-        </div>
+              <ChartCard
+                title="Severe-poor household coverage"
+                description="Share of severe-poor households reached at the selected budget."
+              >
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart
+                    data={comparisonData}
+                    margin={{ top: 10, right: 15, left: 0, bottom: 10 }}
+                  >
+                    <CartesianGrid
+                      stroke="#e3e9e5"
+                      vertical={false}
+                    />
+                    <XAxis
+                      dataKey="strategy"
+                      tick={{
+                        fill: "#63716d",
+                        fontSize: 10,
+                      }}
+                      interval={0}
+                      angle={-15}
+                      textAnchor="end"
+                      height={55}
+                    />
+                    <YAxis
+                      domain={[0, 100]}
+                      unit="%"
+                      tick={{
+                        fill: "#63716d",
+                        fontSize: 11,
+                      }}
+                    />
+                    <Tooltip
+                      formatter={(value) => [
+                        `${Number(value).toFixed(1)}%`,
+                        "Severe-poor coverage",
+                      ]}
+                    />
+                    <Bar
+                      dataKey="severePoorCoverage"
+                      name="Severe-poor coverage"
+                      fill="#c8862c"
+                      radius={[2, 2, 0, 0]}
+                    />
+                  </BarChart>
+                </ResponsiveContainer>
+              </ChartCard>
+            </section>
+
+            <section className="mb-7 border border-[#d9e0dc] bg-[#fbfcfb] p-6">
+              <div className="flex flex-col justify-between gap-2 sm:flex-row sm:items-start">
+                <div>
+                  <h2 className="text-lg font-semibold text-[#183f4a]">
+                    Coverage across budgets
+                  </h2>
+                  <p className="mt-1 text-sm text-[#63716d]">
+                    Observe how poor-household coverage changes as the
+                    selection budget increases.
+                  </p>
+                </div>
+                <span className="font-mono text-[10px] uppercase tracking-[0.14em] text-[#63716d]">
+                  Test-set results
+                </span>
+              </div>
+
+              <div className="mt-6 h-[330px] w-full">
+                <ResponsiveContainer width="100%" height="100%">
+                  <LineChart
+                    margin={{
+                      top: 10,
+                      right: 20,
+                      left: 0,
+                      bottom: 10,
+                    }}
+                  >
+                    <CartesianGrid
+                      stroke="#e3e9e5"
+                      vertical={false}
+                    />
+                    <XAxis
+                      dataKey="budget"
+                      type="category"
+                      allowDuplicatedCategory={false}
+                      tick={{
+                        fill: "#63716d",
+                        fontSize: 11,
+                      }}
+                    />
+                    <YAxis
+                      domain={[0, 100]}
+                      unit="%"
+                      tick={{
+                        fill: "#63716d",
+                        fontSize: 11,
+                      }}
+                    />
+                    <Tooltip
+                      formatter={(value) => [
+                        `${Number(value).toFixed(1)}%`,
+                        "Poor coverage",
+                      ]}
+                    />
+                    <Legend />
+                    {coverageByBudget.map((series) => (
+                      <Line
+                        key={series.strategy}
+                        data={series.points}
+                        type="monotone"
+                        dataKey="coverage"
+                        name={series.strategy}
+                        stroke={
+                          strategyColors[
+                            strategyOrder.find(
+                              (key) =>
+                                strategyLabels[key] ===
+                                series.strategy
+                            ) ?? "Random Targeting"
+                          ]
+                        }
+                        strokeWidth={2}
+                        dot={{ r: 3 }}
+                      />
+                    ))}
+                  </LineChart>
+                </ResponsiveContainer>
+              </div>
+            </section>
+
+            <section className="mb-7 border border-[#d9e0dc] bg-[#fbfcfb] p-6">
+              <div>
+                <h2 className="text-lg font-semibold text-[#183f4a]">
+                  Strategy results at {Math.round(budget * 100)}%
+                </h2>
+                <p className="mt-1 text-sm text-[#63716d]">
+                  Metrics are computed against the poverty reference in the
+                  test set.
+                </p>
+              </div>
+
+              <div className="mt-5 overflow-x-auto">
+                <table className="w-full min-w-[760px] border-collapse text-left text-sm">
+                  <thead>
+                    <tr className="border-b border-[#d9e0dc] text-xs uppercase tracking-[0.08em] text-[#63716d]">
+                      <th className="px-3 py-3 font-semibold">
+                        Strategy
+                      </th>
+                      <th className="px-3 py-3 font-semibold">
+                        Selected
+                      </th>
+                      <th className="px-3 py-3 font-semibold">
+                        Poor coverage
+                      </th>
+                      <th className="px-3 py-3 font-semibold">
+                        Severe poor
+                      </th>
+                      <th className="px-3 py-3 font-semibold">
+                        Precision
+                      </th>
+                      <th className="px-3 py-3 font-semibold">
+                        Inclusion error
+                      </th>
+                      <th className="px-3 py-3 font-semibold">
+                        Exclusion error
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {selectedResults.map((result) => (
+                      <tr
+                        key={result.strategy}
+                        className="border-b border-[#edf0ee] last:border-0"
+                      >
+                        <td className="px-3 py-4 font-semibold text-[#183f4a]">
+                          {strategyLabels[result.strategy] ??
+                            result.strategy}
+                        </td>
+                        <td className="px-3 py-4 text-[#63716d]">
+                          {number(result.households_selected)}
+                        </td>
+                        <td className="px-3 py-4 font-semibold text-[#087f76]">
+                          {percent(result.coverage)}
+                        </td>
+                        <td className="px-3 py-4 text-[#63716d]">
+                          {percent(result.severe_poor_coverage)}
+                        </td>
+                        <td className="px-3 py-4 text-[#63716d]">
+                          {percent(result.precision)}
+                        </td>
+                        <td className="px-3 py-4 text-[#63716d]">
+                          {percent(result.inclusion_error)}
+                        </td>
+                        <td className="px-3 py-4 text-[#63716d]">
+                          {percent(result.exclusion_error)}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </section>
+
+            {robustnessResults.length > 0 && (
+              <section
+                className="mb-7 border border-[#d9e0dc] bg-[#fbfcfb] p-6"
+                aria-labelledby="targeting-robustness-title"
+              >
+                <div>
+                  <h2
+                    id="targeting-robustness-title"
+                    className="text-lg font-semibold text-[#183f4a]"
+                  >
+                    Targeting robustness at {Math.round(budget * 100)}%
+                  </h2>
+                  <p className="mt-1 max-w-3xl text-sm leading-6 text-[#63716d]">
+                    Each figure is the mean ± standard deviation across{" "}
+                    {robustnessResults[0]?.splits ?? 5} repeated
+                    stratified train/test splits, showing how much
+                    targeting performance varies with the sample rather
+                    than a single split.
+                  </p>
+                </div>
+
+                <div className="mt-5 overflow-x-auto">
+                  <table className="w-full min-w-[820px] border-collapse text-left text-sm">
+                    <thead>
+                      <tr className="border-b border-[#d9e0dc] text-xs uppercase tracking-[0.08em] text-[#63716d]">
+                        <th className="px-3 py-3 font-semibold">
+                          Strategy
+                        </th>
+                        <th className="px-3 py-3 font-semibold">
+                          Poor coverage
+                        </th>
+                        <th className="px-3 py-3 font-semibold">
+                          Severe poor
+                        </th>
+                        <th className="px-3 py-3 font-semibold">
+                          Precision
+                        </th>
+                        <th className="px-3 py-3 font-semibold">
+                          Inclusion error
+                        </th>
+                        <th className="px-3 py-3 font-semibold">
+                          Exclusion error
+                        </th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {robustnessResults.map((result) => (
+                        <tr
+                          key={result.strategy}
+                          className="border-b border-[#edf0ee] last:border-0"
+                        >
+                          <td className="px-3 py-4 font-semibold text-[#183f4a]">
+                            {strategyLabels[result.strategy] ??
+                              result.strategy}
+                          </td>
+                          <td className="px-3 py-4 text-[#63716d]">
+                            {meanStd(
+                              result.coverage_mean,
+                              result.coverage_std
+                            )}
+                          </td>
+                          <td className="px-3 py-4 text-[#63716d]">
+                            {meanStd(
+                              result.severe_poor_coverage_mean,
+                              result.severe_poor_coverage_std
+                            )}
+                          </td>
+                          <td className="px-3 py-4 text-[#63716d]">
+                            {meanStd(
+                              result.precision_mean,
+                              result.precision_std
+                            )}
+                          </td>
+                          <td className="px-3 py-4 text-[#63716d]">
+                            {meanStd(
+                              result.inclusion_error_mean,
+                              result.inclusion_error_std
+                            )}
+                          </td>
+                          <td className="px-3 py-4 text-[#63716d]">
+                            {meanStd(
+                              result.exclusion_error_mean,
+                              result.exclusion_error_std
+                            )}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </section>
+            )}
+
+            {modelRobustness.length > 0 && (
+              <section
+                className="mb-7 border border-[#d9e0dc] bg-[#fbfcfb] p-6"
+                aria-labelledby="model-robustness-title"
+              >
+                <div>
+                  <h2
+                    id="model-robustness-title"
+                    className="text-lg font-semibold text-[#183f4a]"
+                  >
+                    Model robustness
+                  </h2>
+                  <p className="mt-1 max-w-3xl text-sm leading-6 text-[#63716d]">
+                    Discrimination performance of the underlying models
+                    across repeated splits. This does not depend on the
+                    selection budget above.
+                  </p>
+                </div>
+
+                <div className="mt-5 overflow-x-auto">
+                  <table className="w-full min-w-[520px] border-collapse text-left text-sm">
+                    <thead>
+                      <tr className="border-b border-[#d9e0dc] text-xs uppercase tracking-[0.08em] text-[#63716d]">
+                        <th className="px-3 py-3 font-semibold">
+                          Model
+                        </th>
+                        <th className="px-3 py-3 font-semibold">
+                          ROC-AUC
+                        </th>
+                        <th className="px-3 py-3 font-semibold">
+                          PR-AUC
+                        </th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {modelRobustness.map((result) => (
+                        <tr
+                          key={result.strategy}
+                          className="border-b border-[#edf0ee] last:border-0"
+                        >
+                          <td className="px-3 py-4 font-semibold text-[#183f4a]">
+                            {strategyLabels[result.strategy] ??
+                              result.strategy}
+                          </td>
+                          <td className="px-3 py-4 text-[#63716d]">
+                            {meanStd(
+                              result.roc_auc_mean,
+                              result.roc_auc_std
+                            )}
+                          </td>
+                          <td className="px-3 py-4 text-[#63716d]">
+                            {meanStd(
+                              result.pr_auc_mean,
+                              result.pr_auc_std
+                            )}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </section>
+            )}
+          </>
+        )}
+
+        <section className="border border-[#d9e0dc] bg-[#f8faf9] p-6">
+          <p className="font-mono text-[10px] uppercase tracking-[0.18em] text-[#63716d]">
+            Interpretation note
+          </p>
+          <p className="mt-3 max-w-4xl text-sm leading-6 text-[#63716d]">
+            These results are empirical test-set estimates from the SPTA
+            research prototype. Coverage, precision, inclusion error, and
+            exclusion error describe different aspects of targeting
+            performance; changing the budget changes the number of households
+            available for selection. The results should therefore be
+            interpreted together rather than as a single decision rule.
+          </p>
+        </section>
       </main>
     </DashboardShell>
   );
 }
 
-function ChartCard({ title, description, children }: { title: string; description: string; children: React.ReactNode }) {
+function MetricCard({
+  label,
+  value,
+  note,
+  tone,
+}: {
+  label: string;
+  value: string;
+  note: string;
+  tone: string;
+}) {
   return (
-    <div className="panel rounded-[28px] p-6">
-      <h2 className="text-lg font-semibold text-[#0f3a42]">{title}</h2>
-      <p className="mt-1 text-sm text-[#5c6c68]">{description}</p>
-      <div className="mt-5 h-[270px] w-full">{children}</div>
+    <article className="border border-[#d9e0dc] bg-[#fbfcfb] p-5 shadow-[0_2px_8px_rgba(24,35,33,0.03)]">
+      <div
+        className="mb-7 h-1 w-10"
+        style={{ backgroundColor: tone }}
+      />
+      <p className="text-sm font-medium text-[#63716d]">{label}</p>
+      <p className="mt-2 text-3xl font-semibold tracking-[-0.04em] text-[#183f4a]">
+        {value}
+      </p>
+      <p className="mt-2 text-xs leading-5 text-[#63716d]">{note}</p>
+    </article>
+  );
+}
+
+function ChartCard({
+  title,
+  description,
+  children,
+}: {
+  title: string;
+  description: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="border border-[#d9e0dc] bg-[#fbfcfb] p-6">
+      <h2 className="text-lg font-semibold text-[#183f4a]">{title}</h2>
+      <p className="mt-1 text-sm text-[#63716d]">{description}</p>
+      <div className="mt-5 h-[300px] w-full">{children}</div>
     </div>
   );
 }

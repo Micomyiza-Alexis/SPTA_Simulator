@@ -12,14 +12,14 @@ const navigation = [
 export function DashboardShell({ active, children }: { active: string; children: React.ReactNode }) {
   return (
     <div className="min-h-screen text-[#12211f]">
-      <aside className="fixed inset-y-4 left-4 z-20 hidden w-64 flex-col overflow-hidden rounded-[28px] bg-[#0f3a42] text-white shadow-[0_24px_60px_-28px_rgba(15,58,66,0.7)] lg:flex">
+      <aside className="fixed inset-y-4 left-4 z-20 hidden w-64 flex-col overflow-hidden rounded-[28px] bg-gradient-to-b from-[#07262c] via-[#0f3a42] to-[#0a2f36] text-white shadow-[0_24px_60px_-28px_rgba(15,58,66,0.7)] lg:flex">
         <div className="flex items-center gap-3 px-6 py-6">
           <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-white/10 ring-1 ring-white/15">
             <Image src="/NISR LOGO.png" alt="NISR" width={54} height={54} className="h-9 w-9 object-contain" priority />
           </div>
           <div>
             <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-[#9ee0d4]">NISR</p>
-            <p className="mt-1 text-sm font-semibold tracking-tight text-white">SPTA Simulator</p>
+            <p className="mt-1 text-sm font-semibold tracking-tight text-white">SPTA Analytics</p>
           </div>
         </div>
 

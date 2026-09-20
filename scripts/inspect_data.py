@@ -10,10 +10,9 @@ TARGET_FILES = [
     "vup_s01_s5_s7_household.dta",
 ]
 
-
 def inspect_file(file_path: Path):
     print("\n" + "=" * 100)
-    print("FILE:", file_path.name)
+    print(f"FILE: {file_path.name}")
     print("=" * 100)
 
     try:
@@ -33,18 +32,18 @@ def inspect_file(file_path: Path):
             print(f"{name:<45} | {label}")
 
     except Exception as e:
-        print("ERROR:", e)
+        print(f"ERROR: {e}")
 
 
 def main():
-    print("SPTA Simulator - EICV7 Data Inspection")
+    print("SPTA Simulator — EICV7 Data Inspection")
     print("=" * 100)
 
     for filename in TARGET_FILES:
         file_path = RAW_DIR / filename
 
         if not file_path.exists():
-            print("NOT FOUND:", filename)
+            print(f"\n⚠️ NOT FOUND: {filename}")
             continue
 
         inspect_file(file_path)

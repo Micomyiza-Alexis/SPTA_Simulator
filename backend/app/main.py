@@ -2,13 +2,31 @@ import os
 
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
+from fastapi.middleware.cors import CORSMiddleware
+from backend.app.api.dashboard import router as dashboard_router
+from backend.app.api.results import router as results_router
+from backend.app.api.robustness import router as robustness_router
 
 app = FastAPI(
     title="SPTA Simulator API",
-    description="Backend API for the Social Protection Targeting Accuracy Simulator",
-    version="0.1.0",
+    description=(
+        "Backend API for the Social Protection "
+        "Targeting Accuracy Simulator"
+    ),
+    version="0.3.0",
 )
-
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[
+        "http://localhost:3000",
+        "http://localhost:3001",
+        "http://127.0.0.1:3000",
+        "http://127.0.0.1:3001",
+    ],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 class LoginRequest(BaseModel):
     username: str
@@ -33,5 +51,9 @@ def health_check():
     return {
         "status": "ok",
         "service": "SPTA Simulator API",
-        "version": "0.1.0",
+        "version": "0.3.0",
     }
+
+app.include_router(results_router)
+app.include_router(robustness_router)
+app.include_router(dashboard_router)
