@@ -11,7 +11,6 @@ export default function HouseholdsPage() {
           title="Household-level review"
           description="Household-level records are kept separate from the aggregated targeting results used by the simulator."
         />
-
         <section className="border border-[#d9e0dc] bg-[#fbfcfb] p-6 lg:p-8">
           <div className="flex items-start gap-4">
             <div className="flex h-10 w-10 shrink-0 items-center justify-center border border-[#b9ded8] bg-[#eff9f6] font-mono text-sm font-semibold text-[#17675e]">
