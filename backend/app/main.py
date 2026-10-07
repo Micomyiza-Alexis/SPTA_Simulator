@@ -3,8 +3,8 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException
-from pydantic import BaseModel
 from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel
 
 from backend.app.api.dashboard import router as dashboard_router
 from backend.app.api.results import router as results_router
@@ -29,10 +29,14 @@ app = FastAPI(
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
+        # Local development
         "http://localhost:3000",
         "http://localhost:3001",
         "http://127.0.0.1:3000",
         "http://127.0.0.1:3001",
+
+        # Vercel production
+        "https://spta-simulator-git-main-micomyiza-alexis-projects.vercel.app",
     ],
     allow_credentials=True,
     allow_methods=["*"],
