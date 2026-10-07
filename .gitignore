@@ -24,9 +24,11 @@ data/raw/
 # Ignore all processed data by default
 data/processed/*
 
-# Allow only the finalized aggregate results needed by the API
+# Allow only finalized aggregate results required by the API
 !data/processed/
 !data/processed/master_strategy_results.csv
+!data/processed/model_robustness_summary.csv
+!data/processed/targeting_robustness_summary.csv
 
 # Statistical microdata formats - NEVER commit
 *.dta
