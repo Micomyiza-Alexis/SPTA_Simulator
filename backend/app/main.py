@@ -36,6 +36,7 @@ app.add_middleware(
         "http://127.0.0.1:3001",
 
         # Vercel production
+        "https://spta-simulator.vercel.app",
         "https://spta-simulator-git-main-micomyiza-alexis-projects.vercel.app",
     ],
     allow_credentials=True,
