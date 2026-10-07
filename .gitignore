@@ -20,7 +20,15 @@ env/
 
 # NISR microdata - NEVER commit
 data/raw/
-data/processed/
+
+# Ignore all processed data by default
+data/processed/*
+
+# Allow only the finalized aggregate results needed by the API
+!data/processed/
+!data/processed/master_strategy_results.csv
+
+# Statistical microdata formats - NEVER commit
 *.dta
 *.sav
 
