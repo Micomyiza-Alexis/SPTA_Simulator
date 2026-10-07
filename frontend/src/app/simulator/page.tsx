@@ -9,10 +9,13 @@ import {
   Line,
   LineChart,
   ResponsiveContainer,
+  Scatter,
+  ScatterChart,
   Tooltip,
   XAxis,
   YAxis,
 } from "recharts";
+import { buildPolicyTradeoffInsight } from "../../lib/policyInsights";
 import {
   getDashboard,
   STRATEGY_KEYS,
@@ -50,24 +53,22 @@ function number(value: number) {
 function getResult(
   data: DashboardData | null,
   strategy: string,
-  budget: number
+  budget: number,
 ): StrategyResult | undefined {
   return data?.results.find(
     (item) =>
-      item.strategy === strategy &&
-      Math.abs(item.budget - budget) < 0.001
+      item.strategy === strategy && Math.abs(item.budget - budget) < 0.001,
   );
 }
 
 function getTargetingRobustness(
   data: DashboardData | null,
   strategy: string,
-  budget: number
+  budget: number,
 ): TargetingRobustness | undefined {
   return data?.targeting_robustness.find(
     (item) =>
-      item.strategy === strategy &&
-      Math.abs(item.budget - budget) < 0.001
+      item.strategy === strategy && Math.abs(item.budget - budget) < 0.001,
   );
 }
 
@@ -75,9 +76,18 @@ function meanStd(mean: number, std: number) {
   return `${(mean * 100).toFixed(1)}% ± ${(std * 100).toFixed(1)}%`;
 }
 
+function differenceLabel(value: number) {
+  if (value > 0) return `+${(value * 100).toFixed(1)} pp`;
+  return `${(value * 100).toFixed(1)} pp`;
+}
+
 export default function SimulatorPage() {
   const [data, setData] = useState<DashboardData | null>(null);
   const [budget, setBudget] = useState(0.1);
+  const [selectedStrategy, setSelectedStrategy] =
+    useState("Logistic Targeting");
+  const [comparisonStrategy, setComparisonStrategy] =
+    useState("Random Targeting");
   const [error, setError] = useState("");
 
   useEffect(() => {
@@ -85,8 +95,8 @@ export default function SimulatorPage() {
       .then(setData)
       .catch(() =>
         setError(
-          "The dashboard data could not be loaded. Make sure the FastAPI backend is running."
-        )
+          "The dashboard data could not be loaded. Make sure the FastAPI backend is running.",
+        ),
       );
   }, []);
 
@@ -98,9 +108,24 @@ export default function SimulatorPage() {
       .filter((result): result is StrategyResult => Boolean(result));
   }, [data, budget]);
 
+  const selectedScenario = useMemo(
+    () => getResult(data, selectedStrategy, budget),
+    [data, selectedStrategy, budget],
+  );
+
+  const comparisonScenario = useMemo(
+    () => getResult(data, comparisonStrategy, budget),
+    [data, comparisonStrategy, budget],
+  );
+
+  const randomScenario = useMemo(
+    () => getResult(data, "Random Targeting", budget),
+    [data, budget],
+  );
+
   const targetingInsight = useMemo(
     () => buildTargetingInsight(selectedResults),
-    [selectedResults]
+    [selectedResults],
   );
 
   const hasPrecisionTradeoff =
@@ -110,35 +135,37 @@ export default function SimulatorPage() {
 
   const crossScenarioInsight = useMemo(
     () => (data ? buildCrossScenarioInsight(data.results) : null),
-    [data]
+    [data],
   );
 
   const comparisonData = selectedResults.map((result) => ({
     strategy: strategyLabels[result.strategy] ?? result.strategy,
     coverage: Number((result.coverage * 100).toFixed(1)),
-    severePoorCoverage: Number(
-      (result.severe_poor_coverage * 100).toFixed(1)
-    ),
+    severePoorCoverage: Number((result.severe_poor_coverage * 100).toFixed(1)),
     precision: Number((result.precision * 100).toFixed(1)),
   }));
-
-  const coverageByBudget = strategyOrder.map((strategy) => {
-    const points = (data?.budgets ?? []).map((currentBudget) => {
-      const result = getResult(data, strategy, currentBudget);
-
-      return {
-        budget: `${Math.round(currentBudget * 100)}%`,
-        coverage: result
-          ? Number((result.coverage * 100).toFixed(1))
-          : null,
-      };
-    });
+  const coveragePrecisionPoints = comparisonData.map((result) => ({
+    strategy: result.strategy,
+    coverage: result.coverage,
+    precision: result.precision,
+  }));
+const coverageByBudget = strategyOrder.map((strategy) => {
+  const points = (data?.budgets ?? []).map((currentBudget) => {
+    const result = getResult(data, strategy, currentBudget);
 
     return {
-      strategy: strategyLabels[strategy] ?? strategy,
-      points,
+      budget: currentBudget,
+      coverage: result
+        ? Number((result.coverage * 100).toFixed(1))
+        : null,
     };
   });
+
+  return {
+    strategy: strategyLabels[strategy] ?? strategy,
+    points,
+  };
+});
 
   const selectedLogistic = getResult(data, "Logistic Targeting", budget);
 
@@ -151,6 +178,15 @@ export default function SimulatorPage() {
   }, [data, budget]);
 
   const modelRobustness = data?.model_robustness ?? [];
+
+  const sameComparison = selectedStrategy === comparisonStrategy;
+  const policyTradeoffInsight = useMemo(() => {
+    if (!selectedScenario || !comparisonScenario || sameComparison) {
+      return null;
+    }
+
+    return buildPolicyTradeoffInsight(selectedScenario, comparisonScenario);
+  }, [selectedScenario, comparisonScenario, sameComparison]);
 
   return (
     <DashboardShell active="Simulator">
@@ -170,6 +206,7 @@ export default function SimulatorPage() {
           </div>
         )}
 
+        {/* Selection rate */}
         <section
           className="mb-7 border border-[#d9e0dc] bg-[#fbfcfb] p-6"
           aria-labelledby="selection-rate-title"
@@ -221,8 +258,718 @@ export default function SimulatorPage() {
           </div>
         </section>
 
+        {/* Phase 4.1 — Policy scenario */}
+        {selectedResults.length > 0 && (
+          <section
+            className="mb-7 overflow-hidden rounded-2xl border border-[#d9e4e1] bg-white shadow-sm"
+            aria-labelledby="policy-scenario-title"
+          >
+            <div className="border-b border-[#e3e9e5] bg-[#f7faf9] px-6 py-5">
+              <p className="text-xs font-bold uppercase tracking-[0.16em] text-[#087f76]">
+                Policy scenario
+              </p>
+
+              <h2
+                id="policy-scenario-title"
+                className="mt-2 text-xl font-bold text-[#183f4a]"
+              >
+                What does this targeting choice produce?
+              </h2>
+
+              <p className="mt-1 max-w-3xl text-sm leading-6 text-[#63716d]">
+                Select a targeting strategy to examine its observed outcome at
+                the selected household selection rate. Values are estimates from
+                the held-out evaluation population.
+              </p>
+            </div>
+
+            <div className="p-6">
+              <div className="grid gap-5 lg:grid-cols-[1fr_2fr]">
+                {/* Strategy selector */}
+                <div>
+                  <label
+                    htmlFor="policy-strategy"
+                    className="text-xs font-bold uppercase tracking-[0.12em] text-[#63716d]"
+                  >
+                    Targeting strategy
+                  </label>
+
+                  <select
+                    id="policy-strategy"
+                    value={selectedStrategy}
+                    onChange={(event) =>
+                      setSelectedStrategy(event.target.value)
+                    }
+                    className="mt-2 w-full rounded-xl border border-[#cfd8d4] bg-white px-4 py-3 text-sm font-semibold text-[#183f4a] outline-none transition focus:border-[#087f76]"
+                  >
+                    {strategyOrder.map((strategy) => (
+                      <option key={strategy} value={strategy}>
+                        {strategyLabels[strategy] ?? strategy}
+                      </option>
+                    ))}
+                  </select>
+
+                  <div className="mt-4 rounded-xl border border-[#e3e9e5] bg-[#fbfcfb] p-4">
+                    <p className="text-xs font-bold uppercase tracking-[0.12em] text-[#087f76]">
+                      Scenario
+                    </p>
+
+                    <p className="mt-2 text-lg font-bold text-[#183f4a]">
+                      {strategyLabels[selectedStrategy] ?? selectedStrategy}
+                    </p>
+
+                    <p className="mt-1 text-sm text-[#63716d]">
+                      {Math.round(budget * 100)}% of the held-out test
+                      households
+                    </p>
+                  </div>
+                </div>
+
+                {/* Scenario metrics */}
+                {selectedScenario && (
+                  <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+                    <ScenarioMetric
+                      label="Households selected"
+                      value={number(selectedScenario.households_selected)}
+                      note="Observed test-set count"
+                    />
+
+                    <ScenarioMetric
+                      label="Weighted households"
+                      value={number(selectedScenario.weighted_selected)}
+                      note="Survey-weighted estimate"
+                    />
+
+                    <ScenarioMetric
+                      label="Weighted poor reached"
+                      value={number(selectedScenario.weighted_poor_selected)}
+                      note="Survey-weighted estimate"
+                    />
+
+                    <ScenarioMetric
+                      label="Poor coverage"
+                      value={percent(selectedScenario.coverage)}
+                      note="Poor households reached"
+                      emphasis
+                    />
+
+                    <ScenarioMetric
+                      label="Severe-poor coverage"
+                      value={percent(selectedScenario.severe_poor_coverage)}
+                      note="Additional targeting indicator"
+                      emphasis
+                    />
+
+                    <ScenarioMetric
+                      label="Precision"
+                      value={percent(selectedScenario.precision)}
+                      note="Poor-household concentration"
+                      emphasis
+                    />
+                  </div>
+                )}
+              </div>
+
+              {/* Comparison with random */}
+              {selectedScenario && randomScenario && (
+                <div className="mt-6 rounded-xl border border-[#d9e4e1] bg-[#f7faf9] p-5">
+                  <div className="flex flex-col justify-between gap-2 sm:flex-row sm:items-center">
+                    <div>
+                      <p className="text-xs font-bold uppercase tracking-[0.12em] text-[#087f76]">
+                        Compared with random targeting
+                      </p>
+
+                      <p className="mt-1 text-sm text-[#63716d]">
+                        Difference between the selected strategy and the random
+                        baseline at the same selection rate.
+                      </p>
+                    </div>
+
+                    <span className="rounded-full bg-white px-3 py-1 text-xs font-semibold text-[#63716d]">
+                      {Math.round(budget * 100)}% selection
+                    </span>
+                  </div>
+
+                  <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                    <ScenarioDifference
+                      label="Poor coverage difference"
+                      value={
+                        selectedScenario.coverage - randomScenario.coverage
+                      }
+                    />
+
+                    <ScenarioDifference
+                      label="Precision difference"
+                      value={
+                        selectedScenario.precision - randomScenario.precision
+                      }
+                    />
+                  </div>
+                </div>
+              )}
+            </div>
+          </section>
+        )}
+
+        {/* Phase 4.2 — Counterfactual comparison */}
+        {selectedResults.length > 0 && (
+          <section
+            className="mb-7 overflow-hidden rounded-2xl border border-[#d9e4e1] bg-white shadow-sm"
+            aria-labelledby="counterfactual-title"
+          >
+            <div className="border-b border-[#e3e9e5] bg-[#f7faf9] px-6 py-5">
+              <p className="text-xs font-bold uppercase tracking-[0.16em] text-[#c8862c]">
+                Counterfactual comparison
+              </p>
+
+              <h2
+                id="counterfactual-title"
+                className="mt-2 text-xl font-bold text-[#183f4a]"
+              >
+                What changes if another targeting strategy is used?
+              </h2>
+
+              <p className="mt-1 max-w-3xl text-sm leading-6 text-[#63716d]">
+                Compare two strategies under the same household selection
+                constraint. Differences are expressed in percentage points and
+                use the finalized held-out evaluation results.
+              </p>
+            </div>
+
+            <div className="p-6">
+              <div className="grid gap-5 md:grid-cols-2">
+                <div>
+                  <label
+                    htmlFor="counterfactual-selected"
+                    className="text-xs font-bold uppercase tracking-[0.12em] text-[#63716d]"
+                  >
+                    Selected strategy
+                  </label>
+
+                  <select
+                    id="counterfactual-selected"
+                    value={selectedStrategy}
+                    onChange={(event) =>
+                      setSelectedStrategy(event.target.value)
+                    }
+                    className="mt-2 w-full rounded-xl border border-[#cfd8d4] bg-white px-4 py-3 text-sm font-semibold text-[#183f4a] outline-none transition focus:border-[#087f76]"
+                  >
+                    {strategyOrder.map((strategy) => (
+                      <option key={strategy} value={strategy}>
+                        {strategyLabels[strategy] ?? strategy}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label
+                    htmlFor="counterfactual-comparison"
+                    className="text-xs font-bold uppercase tracking-[0.12em] text-[#63716d]"
+                  >
+                    Compare against
+                  </label>
+
+                  <select
+                    id="counterfactual-comparison"
+                    value={comparisonStrategy}
+                    onChange={(event) =>
+                      setComparisonStrategy(event.target.value)
+                    }
+                    className="mt-2 w-full rounded-xl border border-[#cfd8d4] bg-white px-4 py-3 text-sm font-semibold text-[#183f4a] outline-none transition focus:border-[#087f76]"
+                  >
+                    {strategyOrder.map((strategy) => (
+                      <option key={strategy} value={strategy}>
+                        {strategyLabels[strategy] ?? strategy}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              {sameComparison ? (
+                <div className="mt-5 rounded-xl border border-[#e6d9bd] bg-[#fffaf0] p-4 text-sm leading-6 text-[#795f31]">
+                  Select two different strategies to view a counterfactual
+                  comparison.
+                </div>
+              ) : (
+                selectedScenario &&
+                comparisonScenario && (
+                  <>
+                    <div className="mt-6 rounded-xl border border-[#d9e4e1] bg-[#fbfcfb] p-5">
+                      <div className="flex flex-col justify-between gap-3 lg:flex-row lg:items-center">
+                        <div>
+                          <p className="text-xs font-bold uppercase tracking-[0.12em] text-[#087f76]">
+                            Same selection constraint
+                          </p>
+
+                          <p className="mt-2 text-lg font-bold text-[#183f4a]">
+                            {strategyLabels[selectedStrategy] ??
+                              selectedStrategy}{" "}
+                            vs{" "}
+                            {strategyLabels[comparisonStrategy] ??
+                              comparisonStrategy}
+                          </p>
+
+                          <p className="mt-1 text-sm text-[#63716d]">
+                            Both strategies select {Math.round(budget * 100)}%
+                            of the same held-out test population.
+                          </p>
+                        </div>
+
+                        <span className="shrink-0 rounded-full bg-[#e6f4f1] px-3 py-1.5 text-xs font-bold text-[#087f76]">
+                          {Math.round(budget * 100)}% selection
+                        </span>
+                      </div>
+                    </div>
+
+                    <div className="mt-5 overflow-x-auto">
+                      <table className="w-full min-w-[760px] border-collapse text-left text-sm">
+                        <thead>
+                          <tr className="border-b border-[#d9e0dc] text-xs uppercase tracking-[0.08em] text-[#63716d]">
+                            <th className="px-3 py-3 font-semibold">Metric</th>
+
+                            <th className="px-3 py-3 font-semibold">
+                              {strategyLabels[selectedStrategy] ??
+                                selectedStrategy}
+                            </th>
+
+                            <th className="px-3 py-3 font-semibold">
+                              {strategyLabels[comparisonStrategy] ??
+                                comparisonStrategy}
+                            </th>
+
+                            <th className="px-3 py-3 font-semibold">
+                              Difference
+                            </th>
+                          </tr>
+                        </thead>
+
+                        <tbody>
+                          <ComparisonRow
+                            label="Poor coverage"
+                            selectedValue={selectedScenario.coverage}
+                            comparisonValue={comparisonScenario.coverage}
+                          />
+
+                          <ComparisonRow
+                            label="Severe-poor coverage"
+                            selectedValue={
+                              selectedScenario.severe_poor_coverage
+                            }
+                            comparisonValue={
+                              comparisonScenario.severe_poor_coverage
+                            }
+                          />
+
+                          <ComparisonRow
+                            label="Precision"
+                            selectedValue={selectedScenario.precision}
+                            comparisonValue={comparisonScenario.precision}
+                          />
+
+                          <ComparisonRow
+                            label="Inclusion error"
+                            selectedValue={selectedScenario.inclusion_error}
+                            comparisonValue={comparisonScenario.inclusion_error}
+                          />
+
+                          <ComparisonRow
+                            label="Exclusion error"
+                            selectedValue={selectedScenario.exclusion_error}
+                            comparisonValue={comparisonScenario.exclusion_error}
+                          />
+                        </tbody>
+                      </table>
+                    </div>
+
+                    <div className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                      <ScenarioDifference
+                        label="Poor coverage difference"
+                        value={
+                          selectedScenario.coverage -
+                          comparisonScenario.coverage
+                        }
+                        comparisonLabel={
+                          strategyLabels[comparisonStrategy] ??
+                          comparisonStrategy
+                        }
+                      />
+
+                      <ScenarioDifference
+                        label="Severe-poor coverage difference"
+                        value={
+                          selectedScenario.severe_poor_coverage -
+                          comparisonScenario.severe_poor_coverage
+                        }
+                        comparisonLabel={
+                          strategyLabels[comparisonStrategy] ??
+                          comparisonStrategy
+                        }
+                      />
+
+                      <ScenarioDifference
+                        label="Precision difference"
+                        value={
+                          selectedScenario.precision -
+                          comparisonScenario.precision
+                        }
+                        comparisonLabel={
+                          strategyLabels[comparisonStrategy] ??
+                          comparisonStrategy
+                        }
+                      />
+
+                      <ScenarioDifference
+                        label="Inclusion error difference"
+                        value={
+                          selectedScenario.inclusion_error -
+                          comparisonScenario.inclusion_error
+                        }
+                        comparisonLabel={
+                          strategyLabels[comparisonStrategy] ??
+                          comparisonStrategy
+                        }
+                      />
+
+                      <ScenarioDifference
+                        label="Exclusion error difference"
+                        value={
+                          selectedScenario.exclusion_error -
+                          comparisonScenario.exclusion_error
+                        }
+                        comparisonLabel={
+                          strategyLabels[comparisonStrategy] ??
+                          comparisonStrategy
+                        }
+                      />
+                    </div>
+
+                    <div className="mt-5 rounded-xl border border-[#d9e4e1] bg-[#183f4a] p-5 text-white">
+                      <p className="text-xs font-bold uppercase tracking-[0.14em] text-[#9fd6cd]">
+                        Counterfactual interpretation
+                      </p>
+
+                      <p className="mt-2 text-sm leading-6 text-[#dce8e5]">
+                        At a {Math.round(budget * 100)}% household selection
+                        rate,{" "}
+                        <strong>
+                          {strategyLabels[selectedStrategy] ?? selectedStrategy}
+                        </strong>{" "}
+                        reaches{" "}
+                        <strong>
+                          {differenceLabel(
+                            selectedScenario.coverage -
+                              comparisonScenario.coverage,
+                          )}
+                        </strong>{" "}
+                        more poor-household coverage than{" "}
+                        <strong>
+                          {strategyLabels[comparisonStrategy] ??
+                            comparisonStrategy}
+                        </strong>
+                        . Its severe-poor coverage differs by{" "}
+                        <strong>
+                          {differenceLabel(
+                            selectedScenario.severe_poor_coverage -
+                              comparisonScenario.severe_poor_coverage,
+                          )}
+                        </strong>
+                        , while its precision differs by{" "}
+                        <strong>
+                          {differenceLabel(
+                            selectedScenario.precision -
+                              comparisonScenario.precision,
+                          )}
+                        </strong>
+                        . These are observed differences between evaluated
+                        strategies, not forecasts of national program impact.
+                      </p>
+                    </div>
+                  </>
+                )
+              )}
+            </div>
+          </section>
+        )}
+        {/* Coverage vs precision */}
+        <section className="mb-7 border border-[#d9e0dc] bg-[#fbfcfb] p-6">
+          <div className="flex flex-col justify-between gap-2 sm:flex-row sm:items-start">
+            <div>
+              <h2 className="text-lg font-semibold text-[#183f4a]">
+                Coverage vs precision
+              </h2>
+
+              <p className="mt-1 text-sm text-[#63716d]">
+                Compare poor-household reach against the concentration of poor
+                households among those selected at the current selection rate.
+              </p>
+            </div>
+
+            <span className="font-mono text-[10px] uppercase tracking-[0.14em] text-[#63716d]">
+              Held-out test-set results
+            </span>
+          </div>
+
+          <div className="mt-6 h-[330px] w-full">
+            <ResponsiveContainer width="100%" height="100%">
+              <ScatterChart
+                margin={{
+                  top: 10,
+                  right: 20,
+                  left: 10,
+                  bottom: 20,
+                }}
+              >
+                <CartesianGrid stroke="#e3e9e5" />
+
+                <XAxis
+                  type="number"
+                  dataKey="coverage"
+                  domain={[0, 100]}
+                  unit="%"
+                  tick={{
+                    fill: "#63716d",
+                    fontSize: 11,
+                  }}
+                  label={{
+                    value: "Poor-household coverage",
+                    position: "insideBottom",
+                    offset: -10,
+                    fill: "#63716d",
+                    fontSize: 11,
+                  }}
+                />
+
+                <YAxis
+                  type="number"
+                  dataKey="precision"
+                  domain={[0, 100]}
+                  unit="%"
+                  tick={{
+                    fill: "#63716d",
+                    fontSize: 11,
+                  }}
+                  label={{
+                    value: "Precision",
+                    angle: -90,
+                    position: "insideLeft",
+                    fill: "#63716d",
+                    fontSize: 11,
+                  }}
+                />
+
+                <Tooltip
+                  cursor={{ strokeDasharray: "3 3" }}
+                  formatter={(value, name) => [
+                    `${Number(value).toFixed(1)}%`,
+                    name === "coverage" ? "Poor coverage" : "Precision",
+                  ]}
+                />
+
+                <Legend
+                  wrapperStyle={{
+                    paddingTop: 10,
+                    fontSize: 11,
+                  }}
+                />
+
+                {coveragePrecisionPoints.map((point) => (
+                  <Scatter
+                    key={point.strategy}
+                    name={point.strategy}
+                    data={[point]}
+                    fill={
+                      strategyColors[
+                        strategyOrder.find(
+                          (key) => strategyLabels[key] === point.strategy,
+                        ) ?? "Random Targeting"
+                      ]
+                    }
+                  />
+                ))}
+              </ScatterChart>
+            </ResponsiveContainer>
+          </div>
+        </section>
+        {/* Phase 4.3 — Policy trade-off summary */}
+        {policyTradeoffInsight && (
+          <section
+            className="mb-7 overflow-hidden rounded-2xl border border-[#d9e4e1] bg-white shadow-sm"
+            aria-labelledby="policy-tradeoff-title"
+          >
+            <div className="border-b border-[#e3e9e5] bg-[#f7faf9] px-6 py-5">
+              <p className="text-xs font-bold uppercase tracking-[0.16em] text-[#087f76]">
+                Policy trade-off summary
+              </p>
+
+              <h2
+                id="policy-tradeoff-title"
+                className="mt-2 text-xl font-bold text-[#183f4a]"
+              >
+                What does this policy choice gain, and what does it give up?
+              </h2>
+
+              <p className="mt-1 max-w-3xl text-sm leading-6 text-[#63716d]">
+                This summary translates the selected counterfactual comparison
+                into a policy-oriented interpretation while keeping the same
+                household selection constraint.
+              </p>
+            </div>
+
+            <div className="p-6">
+              {/* Headline */}
+              <div className="rounded-2xl border border-[#d9e4e1] bg-[#183f4a] p-6 text-white">
+                <div className="flex flex-col justify-between gap-5 lg:flex-row lg:items-center">
+                  <div>
+                    <p className="text-xs font-bold uppercase tracking-[0.14em] text-[#9fd6cd]">
+                      Policy choice
+                    </p>
+
+                    <h3 className="mt-2 text-2xl font-bold">
+                      {policyTradeoffInsight.headline}
+                    </h3>
+
+                    <p className="mt-3 max-w-3xl text-sm leading-6 text-[#dce8e5]">
+                      {policyTradeoffInsight.interpretation}
+                    </p>
+                  </div>
+
+                  <div className="shrink-0 rounded-xl bg-white/10 px-5 py-4 text-center">
+                    <p className="text-xs font-semibold uppercase tracking-[0.12em] text-[#b9cbc7]">
+                      Selection constraint
+                    </p>
+
+                    <p className="mt-1 text-3xl font-bold">
+                      {Math.round(policyTradeoffInsight.selectionRate * 100)}%
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Decision dimensions */}
+              <div className="mt-5 grid gap-4 md:grid-cols-3">
+                <PolicyDecisionCard
+                  label="Poor-household coverage"
+                  winner={
+                    strategyLabels[policyTradeoffInsight.coverageWinner] ??
+                    policyTradeoffInsight.coverageWinner
+                  }
+                  difference={policyTradeoffInsight.coverageDifference}
+                  selectedStrategy={
+                    strategyLabels[policyTradeoffInsight.selectedStrategy] ??
+                    policyTradeoffInsight.selectedStrategy
+                  }
+                  comparisonStrategy={
+                    strategyLabels[policyTradeoffInsight.comparisonStrategy] ??
+                    policyTradeoffInsight.comparisonStrategy
+                  }
+                />
+
+                <PolicyDecisionCard
+                  label="Severe-poor coverage"
+                  winner={
+                    strategyLabels[policyTradeoffInsight.severePoorWinner] ??
+                    policyTradeoffInsight.severePoorWinner
+                  }
+                  difference={
+                    policyTradeoffInsight.severePoorCoverageDifference
+                  }
+                  selectedStrategy={
+                    strategyLabels[policyTradeoffInsight.selectedStrategy] ??
+                    policyTradeoffInsight.selectedStrategy
+                  }
+                  comparisonStrategy={
+                    strategyLabels[policyTradeoffInsight.comparisonStrategy] ??
+                    policyTradeoffInsight.comparisonStrategy
+                  }
+                />
+
+                <PolicyDecisionCard
+                  label="Precision"
+                  winner={
+                    strategyLabels[policyTradeoffInsight.precisionWinner] ??
+                    policyTradeoffInsight.precisionWinner
+                  }
+                  difference={policyTradeoffInsight.precisionDifference}
+                  selectedStrategy={
+                    strategyLabels[policyTradeoffInsight.selectedStrategy] ??
+                    policyTradeoffInsight.selectedStrategy
+                  }
+                  comparisonStrategy={
+                    strategyLabels[policyTradeoffInsight.comparisonStrategy] ??
+                    policyTradeoffInsight.comparisonStrategy
+                  }
+                />
+              </div>
+
+              {/* Decision guide */}
+              <div className="mt-5 rounded-xl border border-[#e3e9e5] bg-[#fbfcfb] p-5">
+                <p className="text-xs font-bold uppercase tracking-[0.14em] text-[#087f76]">
+                  Decision guide
+                </p>
+
+                <div className="mt-4 grid gap-4 md:grid-cols-3">
+                  <div>
+                    <p className="text-sm font-semibold text-[#183f4a]">
+                      If the priority is broader reach
+                    </p>
+
+                    <p className="mt-1 text-sm leading-6 text-[#63716d]">
+                      Prefer the strategy that produces the higher
+                      poor-household coverage under the same selection
+                      constraint.
+                    </p>
+                  </div>
+
+                  <div>
+                    <p className="text-sm font-semibold text-[#183f4a]">
+                      If the priority is severe-poor reach
+                    </p>
+
+                    <p className="mt-1 text-sm leading-6 text-[#63716d]">
+                      Compare severe-poor coverage directly rather than assuming
+                      that higher overall precision means better severe-poor
+                      reach.
+                    </p>
+                  </div>
+
+                  <div>
+                    <p className="text-sm font-semibold text-[#183f4a]">
+                      If the priority is concentration
+                    </p>
+
+                    <p className="mt-1 text-sm leading-6 text-[#63716d]">
+                      Prefer the strategy with higher precision, meaning a
+                      larger share of selected households are classified as poor
+                      in the evaluation population.
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Methodology boundary */}
+              <div className="mt-5 border-l-2 border-[#c8862c] bg-[#fffaf0] px-4 py-4">
+                <p className="text-xs font-bold uppercase tracking-[0.12em] text-[#795f31]">
+                  Interpretation boundary
+                </p>
+
+                <p className="mt-2 text-sm leading-6 text-[#795f31]">
+                  This is a decision-support comparison using the held-out
+                  evaluation population. It does not estimate national
+                  beneficiary numbers, program costs, or individual eligibility.
+                  A policy decision would also require operational, fiscal,
+                  geographic, and implementation considerations beyond these
+                  targeting metrics.
+                </p>
+              </div>
+            </div>
+          </section>
+        )}
+
         {selectedResults.length > 0 && (
           <>
+            {/* Summary cards */}
             <section
               className="mb-7 grid gap-3 sm:grid-cols-2 xl:grid-cols-4"
               aria-label="Selected household selection rate summary"
@@ -244,9 +991,7 @@ export default function SimulatorPage() {
               <MetricCard
                 label="Highest observed poor coverage"
                 value={percent(
-                  Math.max(
-                    ...selectedResults.map((result) => result.coverage)
-                  )
+                  Math.max(...selectedResults.map((result) => result.coverage)),
                 )}
                 note="Across displayed strategies"
                 tone="#c8862c"
@@ -255,15 +1000,14 @@ export default function SimulatorPage() {
               <MetricCard
                 label="Logistic poor coverage"
                 value={
-                  selectedLogistic
-                    ? percent(selectedLogistic.coverage)
-                    : "—"
+                  selectedLogistic ? percent(selectedLogistic.coverage) : "—"
                 }
                 note="Reference model result"
                 tone="#5b6f91"
               />
             </section>
 
+            {/* Coverage intelligence */}
             {targetingInsight && (
               <section className="mb-7 grid gap-5 lg:grid-cols-[1.35fr_0.65fr]">
                 <div className="rounded-2xl border border-[#d9e4e1] bg-white p-6 shadow-sm">
@@ -315,9 +1059,7 @@ export default function SimulatorPage() {
                       </p>
 
                       <p className="mt-1 text-xl font-bold text-[#183f4a]">
-                        {percent(
-                          targetingInsight.highestSeverePoorCoverage
-                        )}
+                        {percent(targetingInsight.highestSeverePoorCoverage)}
                       </p>
                     </div>
 
@@ -331,8 +1073,8 @@ export default function SimulatorPage() {
                           selectedResults.find(
                             (result) =>
                               result.strategy ===
-                              targetingInsight.coverageRecommendedStrategy
-                          )?.precision ?? 0
+                              targetingInsight.coverageRecommendedStrategy,
+                          )?.precision ?? 0,
                         )}
                       </p>
                     </div>
@@ -340,16 +1082,16 @@ export default function SimulatorPage() {
 
                   <div className="mt-5 rounded-xl border border-[#e5ebe9] bg-[#fbfcfb] p-4">
                     <p className="text-sm leading-6 text-[#4f5d59]">
-                      The recommended strategy reaches{" "}
+                      The coverage-leading strategy reaches{" "}
                       <strong className="text-[#183f4a]">
                         {targetingInsight.coverageMultiplierVsRandom
                           ? `${targetingInsight.coverageMultiplierVsRandom.toFixed(
-                              2
+                              2,
                             )}×`
                           : "more"}
                       </strong>{" "}
-                      the poor-household coverage of the random baseline at
-                      this selection rate.
+                      the poor-household coverage of the random baseline at this
+                      selection rate.
                     </p>
                   </div>
                 </div>
@@ -367,8 +1109,8 @@ export default function SimulatorPage() {
                     {strategyLabels[
                       targetingInsight.coverageRecommendedStrategy
                     ] ?? targetingInsight.coverageRecommendedStrategy}{" "}
-                    leads the evaluated strategies on poor-household coverage
-                    at the selected rate.
+                    leads the evaluated strategies on poor-household coverage at
+                    the selected rate.
                     {hasPrecisionTradeoff && (
                       <>
                         {" "}
@@ -382,9 +1124,7 @@ export default function SimulatorPage() {
 
                   <div className="mt-5 space-y-3 text-sm">
                     <div className="flex justify-between gap-4 border-b border-white/10 pb-3">
-                      <span className="text-[#b9cbc7]">
-                        Coverage leader
-                      </span>
+                      <span className="text-[#b9cbc7]">Coverage leader</span>
 
                       <span className="font-semibold">
                         {strategyLabels[targetingInsight.coverageLeader] ??
@@ -393,14 +1133,11 @@ export default function SimulatorPage() {
                     </div>
 
                     <div className="flex justify-between gap-4 border-b border-white/10 pb-3">
-                      <span className="text-[#b9cbc7]">
-                        Severe-poor leader
-                      </span>
+                      <span className="text-[#b9cbc7]">Severe-poor leader</span>
 
                       <span className="font-semibold">
-                        {strategyLabels[
-                          targetingInsight.severePoorLeader
-                        ] ?? targetingInsight.severePoorLeader}
+                        {strategyLabels[targetingInsight.severePoorLeader] ??
+                          targetingInsight.severePoorLeader}
                       </span>
                     </div>
 
@@ -426,15 +1163,13 @@ export default function SimulatorPage() {
                           <strong>
                             {strategyLabels[
                               targetingInsight.coverageRecommendedStrategy
-                            ] ??
-                              targetingInsight.coverageRecommendedStrategy}
+                            ] ?? targetingInsight.coverageRecommendedStrategy}
                           </strong>{" "}
                           when reaching more poor households is the priority.
                           Choose{" "}
                           <strong>
-                            {strategyLabels[
-                              targetingInsight.precisionLeader
-                            ] ?? targetingInsight.precisionLeader}
+                            {strategyLabels[targetingInsight.precisionLeader] ??
+                              targetingInsight.precisionLeader}
                           </strong>{" "}
                           when precision is the stronger priority.
                         </p>
@@ -445,22 +1180,25 @@ export default function SimulatorPage() {
               </section>
             )}
 
+            {/* Charts */}
             <section className="mb-7 grid gap-5 lg:grid-cols-2">
               <ChartCard
                 title="Poor household coverage"
                 description={`Share of poor households reached at a ${Math.round(
-                  budget * 100
+                  budget * 100,
                 )}% household selection rate.`}
               >
                 <ResponsiveContainer width="100%" height="100%">
                   <BarChart
                     data={comparisonData}
-                    margin={{ top: 10, right: 15, left: 0, bottom: 10 }}
+                    margin={{
+                      top: 10,
+                      right: 15,
+                      left: 0,
+                      bottom: 10,
+                    }}
                   >
-                    <CartesianGrid
-                      stroke="#e3e9e5"
-                      vertical={false}
-                    />
+                    <CartesianGrid stroke="#e3e9e5" vertical={false} />
 
                     <XAxis
                       dataKey="strategy"
@@ -507,12 +1245,14 @@ export default function SimulatorPage() {
                 <ResponsiveContainer width="100%" height="100%">
                   <BarChart
                     data={comparisonData}
-                    margin={{ top: 10, right: 15, left: 0, bottom: 10 }}
+                    margin={{
+                      top: 10,
+                      right: 15,
+                      left: 0,
+                      bottom: 10,
+                    }}
                   >
-                    <CartesianGrid
-                      stroke="#e3e9e5"
-                      vertical={false}
-                    />
+                    <CartesianGrid stroke="#e3e9e5" vertical={false} />
 
                     <XAxis
                       dataKey="strategy"
@@ -552,7 +1292,7 @@ export default function SimulatorPage() {
                 </ResponsiveContainer>
               </ChartCard>
             </section>
-
+            {/* Coverage across selection rates */}
             <section className="mb-7 border border-[#d9e0dc] bg-[#fbfcfb] p-6">
               <div className="flex flex-col justify-between gap-2 sm:flex-row sm:items-start">
                 <div>
@@ -561,13 +1301,13 @@ export default function SimulatorPage() {
                   </h2>
 
                   <p className="mt-1 text-sm text-[#63716d]">
-                    Observe how poor-household coverage changes as the
-                    household selection rate increases.
+                    Compare observed poor-household coverage at each tested
+                    household selection rate.
                   </p>
                 </div>
 
                 <span className="font-mono text-[10px] uppercase tracking-[0.14em] text-[#63716d]">
-                  Test-set results
+                  Held-out test-set results
                 </span>
               </div>
 
@@ -581,16 +1321,21 @@ export default function SimulatorPage() {
                       bottom: 10,
                     }}
                   >
-                    <CartesianGrid
-                      stroke="#e3e9e5"
-                      vertical={false}
-                    />
+                    <CartesianGrid stroke="#e3e9e5" vertical={false} />
 
                     <XAxis
                       dataKey="budget"
                       type="category"
                       allowDuplicatedCategory={false}
+                      tickFormatter={(value) => `${Number(value) * 100}%`}
                       tick={{
+                        fill: "#63716d",
+                        fontSize: 11,
+                      }}
+                      label={{
+                        value: "Household selection rate",
+                        position: "insideBottom",
+                        offset: -5,
                         fill: "#63716d",
                         fontSize: 11,
                       }}
@@ -603,9 +1348,19 @@ export default function SimulatorPage() {
                         fill: "#63716d",
                         fontSize: 11,
                       }}
+                      label={{
+                        value: "Poor-household coverage",
+                        angle: -90,
+                        position: "insideLeft",
+                        fill: "#63716d",
+                        fontSize: 11,
+                      }}
                     />
 
                     <Tooltip
+                      labelFormatter={(value) =>
+                        `${Number(value) * 100}% selection`
+                      }
                       formatter={(value) => [
                         `${Number(value).toFixed(1)}%`,
                         "Poor coverage",
@@ -623,14 +1378,13 @@ export default function SimulatorPage() {
                       <Line
                         key={series.strategy}
                         data={series.points}
-                        type="monotone"
+                        type="linear"
                         dataKey="coverage"
                         name={series.strategy}
                         stroke={
                           strategyColors[
                             strategyOrder.find(
-                              (key) =>
-                                strategyLabels[key] === series.strategy
+                              (key) => strategyLabels[key] === series.strategy,
                             ) ?? "Random Targeting"
                           ]
                         }
@@ -642,7 +1396,7 @@ export default function SimulatorPage() {
                 </ResponsiveContainer>
               </div>
             </section>
-
+            {/* Cross-scenario intelligence */}
             {crossScenarioInsight && (
               <section
                 className="mb-7 overflow-hidden rounded-2xl border border-[#d9e4e1] bg-white shadow-sm"
@@ -680,9 +1434,8 @@ export default function SimulatorPage() {
                       </p>
 
                       <p className="mt-1 text-xs text-[#63716d]">
-                        Leads in{" "}
-                        {crossScenarioInsight.coverageLeadershipCount} of{" "}
-                        {data?.budgets.length ?? 0} tested rates
+                        Leads in {crossScenarioInsight.coverageLeadershipCount}{" "}
+                        of {data?.budgets.length ?? 0} tested rates
                       </p>
                     </div>
                   </div>
@@ -696,33 +1449,31 @@ export default function SimulatorPage() {
                         strategyLabels[crossScenarioInsight.coverageLeader] ??
                         crossScenarioInsight.coverageLeader
                       }
-                      note={`Leads poor-household coverage in ${crossScenarioInsight.coverageLeadershipCount} of ${
-                        data?.budgets.length ?? 0
-                      } tested selection rates.`}
+                      note={`Leads poor-household coverage in ${
+                        crossScenarioInsight.coverageLeadershipCount
+                      } of ${data?.budgets.length ?? 0} tested selection rates.`}
                       tone="#183f4a"
                     />
 
                     <InsightCard
                       label="Severe-poor leader"
                       value={
-                        strategyLabels[
-                          crossScenarioInsight.severePoorLeader
-                        ] ?? crossScenarioInsight.severePoorLeader
+                        strategyLabels[crossScenarioInsight.severePoorLeader] ??
+                        crossScenarioInsight.severePoorLeader
                       }
-                      note={`Leads severe-poor coverage in ${crossScenarioInsight.severePoorLeadershipCount} of ${
-                        data?.budgets.length ?? 0
-                      } tested rates.`}
+                      note={`Leads severe-poor coverage in ${
+                        crossScenarioInsight.severePoorLeadershipCount
+                      } of ${data?.budgets.length ?? 0} tested rates.`}
                       tone="#c8862c"
                     />
 
                     <InsightCard
                       label="Most frequent precision leader"
                       value={
-                        strategyLabels[
-                          crossScenarioInsight.precisionLeader
-                        ] ?? crossScenarioInsight.precisionLeader
+                        strategyLabels[crossScenarioInsight.precisionLeader] ??
+                        crossScenarioInsight.precisionLeader
                       }
-                      note={`Highest precision across ${
+                      note={`Leads precision in ${
                         crossScenarioInsight.precisionLeadershipCount
                       } of ${data?.budgets.length ?? 0} tested rates.`}
                       tone="#5b6f91"
@@ -734,9 +1485,9 @@ export default function SimulatorPage() {
                         crossScenarioInsight.coverageChange * 100
                       ).toFixed(1)} pp`}
                       note={`For the coverage-leading strategy from ${Math.round(
-                        crossScenarioInsight.lowestBudget * 100
+                        crossScenarioInsight.lowestBudget * 100,
                       )}% to ${Math.round(
-                        crossScenarioInsight.highestBudget * 100
+                        crossScenarioInsight.highestBudget * 100,
                       )}% selection.`}
                       tone="#087f76"
                     />
@@ -750,18 +1501,14 @@ export default function SimulatorPage() {
 
                       <div className="mt-3 flex items-end gap-3">
                         <span className="text-3xl font-bold tracking-[-0.04em] text-[#183f4a]">
-                          {percent(
-                            crossScenarioInsight.coverageAtLowestBudget
-                          )}
+                          {percent(crossScenarioInsight.coverageAtLowestBudget)}
                         </span>
 
-                        <span className="pb-1 text-lg text-[#9aa7a3]">
-                          →
-                        </span>
+                        <span className="pb-1 text-lg text-[#9aa7a3]">→</span>
 
                         <span className="text-3xl font-bold tracking-[-0.04em] text-[#087f76]">
                           {percent(
-                            crossScenarioInsight.coverageAtHighestBudget
+                            crossScenarioInsight.coverageAtHighestBudget,
                           )}
                         </span>
                       </div>
@@ -769,19 +1516,15 @@ export default function SimulatorPage() {
                       <p className="mt-2 text-sm leading-6 text-[#63716d]">
                         Poor-household coverage rises by{" "}
                         <strong className="text-[#183f4a]">
-                          {(
-                            crossScenarioInsight.coverageChange * 100
-                          ).toFixed(1)}{" "}
+                          {(crossScenarioInsight.coverageChange * 100).toFixed(
+                            1,
+                          )}{" "}
                           percentage points
                         </strong>{" "}
                         when the selection rate increases from{" "}
-                        {Math.round(
-                          crossScenarioInsight.lowestBudget * 100
-                        )}
-                        % to{" "}
-                        {Math.round(
-                          crossScenarioInsight.highestBudget * 100
-                        )}
+                        {Math.round(crossScenarioInsight.lowestBudget * 100)}%
+                        to{" "}
+                        {Math.round(crossScenarioInsight.highestBudget * 100)}
                         %.
                       </p>
                     </div>
@@ -794,17 +1537,15 @@ export default function SimulatorPage() {
                       <div className="mt-3 flex items-end gap-3">
                         <span className="text-3xl font-bold tracking-[-0.04em] text-[#183f4a]">
                           {percent(
-                            crossScenarioInsight.precisionAtLowestBudget
+                            crossScenarioInsight.precisionAtLowestBudget,
                           )}
                         </span>
 
-                        <span className="pb-1 text-lg text-[#9aa7a3]">
-                          →
-                        </span>
+                        <span className="pb-1 text-lg text-[#9aa7a3]">→</span>
 
                         <span className="text-3xl font-bold tracking-[-0.04em] text-[#c8862c]">
                           {percent(
-                            crossScenarioInsight.precisionAtHighestBudget
+                            crossScenarioInsight.precisionAtHighestBudget,
                           )}
                         </span>
                       </div>
@@ -812,16 +1553,14 @@ export default function SimulatorPage() {
                       <p className="mt-2 text-sm leading-6 text-[#63716d]">
                         Precision changes by{" "}
                         <strong className="text-[#183f4a]">
-                          {crossScenarioInsight.precisionChange >= 0
-                            ? "+"
-                            : ""}
-                          {(
-                            crossScenarioInsight.precisionChange * 100
-                          ).toFixed(1)}{" "}
+                          {crossScenarioInsight.precisionChange >= 0 ? "+" : ""}
+                          {(crossScenarioInsight.precisionChange * 100).toFixed(
+                            1,
+                          )}{" "}
                           percentage points
                         </strong>{" "}
-                        for the coverage-leading strategy as the selection
-                        rate increases.
+                        for the coverage-leading strategy as the selection rate
+                        increases.
                       </p>
                     </div>
                   </div>
@@ -834,35 +1573,26 @@ export default function SimulatorPage() {
                     <p className="mt-2 text-sm leading-6 text-[#dce8e5]">
                       {strategyLabels[crossScenarioInsight.coverageLeader] ??
                         crossScenarioInsight.coverageLeader}{" "}
-                      is the most consistent choice when the policy objective
-                      is to maximize poor-household coverage: it leads across{" "}
+                      is the most consistent choice when the policy objective is
+                      to maximize poor-household coverage: it leads across{" "}
                       {crossScenarioInsight.coverageLeadershipCount} of{" "}
                       {data?.budgets.length ?? 0} tested selection rates.
                       Increasing the selection rate from{" "}
-                      {Math.round(
-                        crossScenarioInsight.lowestBudget * 100
-                      )}
-                      % to{" "}
-                      {Math.round(
-                        crossScenarioInsight.highestBudget * 100
-                      )}
-                      % substantially increases coverage, but precision for
-                      the coverage-leading strategy falls from{" "}
-                      {percent(
-                        crossScenarioInsight.precisionAtLowestBudget
-                      )}{" "}
-                      to{" "}
-                      {percent(
-                        crossScenarioInsight.precisionAtHighestBudget
-                      )}
-                      . This is a coverage-versus-precision trade-off rather
-                      than a change in the underlying model.
+                      {Math.round(crossScenarioInsight.lowestBudget * 100)}% to{" "}
+                      {Math.round(crossScenarioInsight.highestBudget * 100)}%
+                      substantially increases coverage, but precision for the
+                      coverage-leading strategy falls from{" "}
+                      {percent(crossScenarioInsight.precisionAtLowestBudget)} to{" "}
+                      {percent(crossScenarioInsight.precisionAtHighestBudget)}.
+                      This is a coverage-versus-precision trade-off rather than
+                      a change in the underlying model.
                     </p>
                   </div>
                 </div>
               </section>
             )}
 
+            {/* Strategy results */}
             <section className="mb-7 border border-[#d9e0dc] bg-[#fbfcfb] p-6">
               <div>
                 <h2 className="text-lg font-semibold text-[#183f4a]">
@@ -870,8 +1600,8 @@ export default function SimulatorPage() {
                 </h2>
 
                 <p className="mt-1 text-sm text-[#63716d]">
-                  Metrics are computed against the poverty reference in the
-                  test set.
+                  Metrics are computed against the poverty reference in the test
+                  set.
                 </p>
               </div>
 
@@ -879,24 +1609,20 @@ export default function SimulatorPage() {
                 <table className="w-full min-w-[760px] border-collapse text-left text-sm">
                   <thead>
                     <tr className="border-b border-[#d9e0dc] text-xs uppercase tracking-[0.08em] text-[#63716d]">
-                      <th className="px-3 py-3 font-semibold">
-                        Strategy
-                      </th>
-                      <th className="px-3 py-3 font-semibold">
-                        Selected
-                      </th>
-                      <th className="px-3 py-3 font-semibold">
-                        Poor coverage
-                      </th>
-                      <th className="px-3 py-3 font-semibold">
-                        Severe poor
-                      </th>
-                      <th className="px-3 py-3 font-semibold">
-                        Precision
-                      </th>
+                      <th className="px-3 py-3 font-semibold">Strategy</th>
+
+                      <th className="px-3 py-3 font-semibold">Selected</th>
+
+                      <th className="px-3 py-3 font-semibold">Poor coverage</th>
+
+                      <th className="px-3 py-3 font-semibold">Severe poor</th>
+
+                      <th className="px-3 py-3 font-semibold">Precision</th>
+
                       <th className="px-3 py-3 font-semibold">
                         Inclusion error
                       </th>
+
                       <th className="px-3 py-3 font-semibold">
                         Exclusion error
                       </th>
@@ -910,8 +1636,7 @@ export default function SimulatorPage() {
                         className="border-b border-[#edf0ee] last:border-0"
                       >
                         <td className="px-3 py-4 font-semibold text-[#183f4a]">
-                          {strategyLabels[result.strategy] ??
-                            result.strategy}
+                          {strategyLabels[result.strategy] ?? result.strategy}
                         </td>
 
                         <td className="px-3 py-4 text-[#63716d]">
@@ -944,6 +1669,7 @@ export default function SimulatorPage() {
               </div>
             </section>
 
+            {/* Targeting robustness */}
             {robustnessResults.length > 0 && (
               <section
                 className="mb-7 border border-[#d9e0dc] bg-[#fbfcfb] p-6"
@@ -969,21 +1695,20 @@ export default function SimulatorPage() {
                   <table className="w-full min-w-[820px] border-collapse text-left text-sm">
                     <thead>
                       <tr className="border-b border-[#d9e0dc] text-xs uppercase tracking-[0.08em] text-[#63716d]">
-                        <th className="px-3 py-3 font-semibold">
-                          Strategy
-                        </th>
+                        <th className="px-3 py-3 font-semibold">Strategy</th>
+
                         <th className="px-3 py-3 font-semibold">
                           Poor coverage
                         </th>
-                        <th className="px-3 py-3 font-semibold">
-                          Severe poor
-                        </th>
-                        <th className="px-3 py-3 font-semibold">
-                          Precision
-                        </th>
+
+                        <th className="px-3 py-3 font-semibold">Severe poor</th>
+
+                        <th className="px-3 py-3 font-semibold">Precision</th>
+
                         <th className="px-3 py-3 font-semibold">
                           Inclusion error
                         </th>
+
                         <th className="px-3 py-3 font-semibold">
                           Exclusion error
                         </th>
@@ -997,42 +1722,38 @@ export default function SimulatorPage() {
                           className="border-b border-[#edf0ee] last:border-0"
                         >
                           <td className="px-3 py-4 font-semibold text-[#183f4a]">
-                            {strategyLabels[result.strategy] ??
-                              result.strategy}
+                            {strategyLabels[result.strategy] ?? result.strategy}
                           </td>
 
                           <td className="px-3 py-4 text-[#63716d]">
-                            {meanStd(
-                              result.coverage_mean,
-                              result.coverage_std
-                            )}
+                            {meanStd(result.coverage_mean, result.coverage_std)}
                           </td>
 
                           <td className="px-3 py-4 text-[#63716d]">
                             {meanStd(
                               result.severe_poor_coverage_mean,
-                              result.severe_poor_coverage_std
+                              result.severe_poor_coverage_std,
                             )}
                           </td>
 
                           <td className="px-3 py-4 text-[#63716d]">
                             {meanStd(
                               result.precision_mean,
-                              result.precision_std
+                              result.precision_std,
                             )}
                           </td>
 
                           <td className="px-3 py-4 text-[#63716d]">
                             {meanStd(
                               result.inclusion_error_mean,
-                              result.inclusion_error_std
+                              result.inclusion_error_std,
                             )}
                           </td>
 
                           <td className="px-3 py-4 text-[#63716d]">
                             {meanStd(
                               result.exclusion_error_mean,
-                              result.exclusion_error_std
+                              result.exclusion_error_std,
                             )}
                           </td>
                         </tr>
@@ -1043,6 +1764,7 @@ export default function SimulatorPage() {
               </section>
             )}
 
+            {/* Model robustness */}
             {modelRobustness.length > 0 && (
               <section
                 className="mb-7 border border-[#d9e0dc] bg-[#fbfcfb] p-6"
@@ -1067,15 +1789,11 @@ export default function SimulatorPage() {
                   <table className="w-full min-w-[520px] border-collapse text-left text-sm">
                     <thead>
                       <tr className="border-b border-[#d9e0dc] text-xs uppercase tracking-[0.08em] text-[#63716d]">
-                        <th className="px-3 py-3 font-semibold">
-                          Model
-                        </th>
-                        <th className="px-3 py-3 font-semibold">
-                          ROC-AUC
-                        </th>
-                        <th className="px-3 py-3 font-semibold">
-                          PR-AUC
-                        </th>
+                        <th className="px-3 py-3 font-semibold">Model</th>
+
+                        <th className="px-3 py-3 font-semibold">ROC-AUC</th>
+
+                        <th className="px-3 py-3 font-semibold">PR-AUC</th>
                       </tr>
                     </thead>
 
@@ -1086,22 +1804,15 @@ export default function SimulatorPage() {
                           className="border-b border-[#edf0ee] last:border-0"
                         >
                           <td className="px-3 py-4 font-semibold text-[#183f4a]">
-                            {strategyLabels[result.strategy] ??
-                              result.strategy}
+                            {strategyLabels[result.strategy] ?? result.strategy}
                           </td>
 
                           <td className="px-3 py-4 text-[#63716d]">
-                            {meanStd(
-                              result.roc_auc_mean,
-                              result.roc_auc_std
-                            )}
+                            {meanStd(result.roc_auc_mean, result.roc_auc_std)}
                           </td>
 
                           <td className="px-3 py-4 text-[#63716d]">
-                            {meanStd(
-                              result.pr_auc_mean,
-                              result.pr_auc_std
-                            )}
+                            {meanStd(result.pr_auc_mean, result.pr_auc_std)}
                           </td>
                         </tr>
                       ))}
@@ -1113,6 +1824,7 @@ export default function SimulatorPage() {
           </>
         )}
 
+        {/* Interpretation note */}
         <section className="border border-[#d9e0dc] bg-[#f8faf9] p-6">
           <p className="font-mono text-[10px] uppercase tracking-[0.18em] text-[#63716d]">
             Interpretation note
@@ -1121,10 +1833,12 @@ export default function SimulatorPage() {
           <p className="mt-3 max-w-4xl text-sm leading-6 text-[#63716d]">
             These results are empirical test-set estimates from the SPTA
             research prototype. Coverage, precision, inclusion error, and
-            exclusion error describe different aspects of targeting
-            performance; changing the selection rate changes the number of
-            households available for selection. The results should therefore
-            be interpreted together rather than as a single decision rule.
+            exclusion error describe different aspects of targeting performance;
+            changing the selection rate changes the number of households
+            available for selection. Counterfactual comparisons show observed
+            differences between evaluated strategies under the same selection
+            constraint. They should not be interpreted as forecasts of national
+            program impact or individual eligibility decisions.
           </p>
         </section>
       </main>
@@ -1132,6 +1846,172 @@ export default function SimulatorPage() {
   );
 }
 
+function ScenarioMetric({
+  label,
+  value,
+  note,
+  emphasis = false,
+}: {
+  label: string;
+  value: string;
+  note: string;
+  emphasis?: boolean;
+}) {
+  return (
+    <article className="rounded-xl border border-[#e3e9e5] bg-[#fbfcfb] p-4">
+      <p className="text-xs font-medium text-[#63716d]">{label}</p>
+
+      <p
+        className={`mt-2 text-2xl font-bold tracking-[-0.03em] ${
+          emphasis ? "text-[#087f76]" : "text-[#183f4a]"
+        }`}
+      >
+        {value}
+      </p>
+
+      <p className="mt-1 text-xs leading-5 text-[#63716d]">{note}</p>
+    </article>
+  );
+}
+
+function ScenarioDifference({
+  label,
+  value,
+  comparisonLabel = "random targeting",
+}: {
+  label: string;
+  value: number;
+  comparisonLabel?: string;
+}) {
+  const positive = value > 0;
+  const negative = value < 0;
+
+  return (
+    <div className="rounded-xl border border-[#e3e9e5] bg-white p-4">
+      <p className="text-xs font-medium text-[#63716d]">{label}</p>
+
+      <p
+        className={`mt-2 text-2xl font-bold ${
+          positive
+            ? "text-[#087f76]"
+            : negative
+              ? "text-[#b8544c]"
+              : "text-[#63716d]"
+        }`}
+      >
+        {positive ? "+" : ""}
+        {(value * 100).toFixed(1)} pp
+      </p>
+
+      <p className="mt-1 text-xs text-[#63716d]">
+        Compared with {comparisonLabel}
+      </p>
+    </div>
+  );
+}
+
+function ComparisonRow({
+  label,
+  selectedValue,
+  comparisonValue,
+}: {
+  label: string;
+  selectedValue: number;
+  comparisonValue: number;
+}) {
+  const difference = selectedValue - comparisonValue;
+  const positive = difference > 0;
+  const negative = difference < 0;
+
+  return (
+    <tr className="border-b border-[#edf0ee] last:border-0">
+      <td className="px-3 py-4 font-semibold text-[#183f4a]">{label}</td>
+
+      <td className="px-3 py-4 font-semibold text-[#183f4a]">
+        {percent(selectedValue)}
+      </td>
+
+      <td className="px-3 py-4 text-[#63716d]">{percent(comparisonValue)}</td>
+
+      <td
+        className={`px-3 py-4 font-semibold ${
+          positive
+            ? "text-[#087f76]"
+            : negative
+              ? "text-[#b8544c]"
+              : "text-[#63716d]"
+        }`}
+      >
+        {differenceLabel(difference)}
+      </td>
+    </tr>
+  );
+}
+function PolicyDecisionCard({
+  label,
+  winner,
+  difference,
+  selectedStrategy,
+  comparisonStrategy,
+}: {
+  label: string;
+  winner: string;
+  difference: number;
+  selectedStrategy: string;
+  comparisonStrategy: string;
+}) {
+  const isTie = winner === "Tie";
+  const selectedWins = difference > 0;
+  const comparisonWins = difference < 0;
+
+  return (
+    <article className="rounded-xl border border-[#e3e9e5] bg-[#fbfcfb] p-5">
+      <p className="text-xs font-bold uppercase tracking-[0.1em] text-[#63716d]">
+        {label}
+      </p>
+
+      <p className="mt-3 text-lg font-bold text-[#183f4a]">
+        {isTie ? "Tie" : winner}
+      </p>
+
+      <div className="mt-4 flex items-center justify-between gap-3 text-sm">
+        <span
+          className={
+            selectedWins ? "font-semibold text-[#087f76]" : "text-[#63716d]"
+          }
+        >
+          {selectedStrategy}
+        </span>
+
+        <span className="font-mono text-xs font-semibold text-[#63716d]">
+          {selectedWins
+            ? `+${(difference * 100).toFixed(1)} pp`
+            : isTie
+              ? "0.0 pp"
+              : `${(difference * 100).toFixed(1)} pp`}
+        </span>
+      </div>
+
+      <div className="mt-2 flex items-center justify-between gap-3 text-sm">
+        <span
+          className={
+            comparisonWins ? "font-semibold text-[#087f76]" : "text-[#63716d]"
+          }
+        >
+          {comparisonStrategy}
+        </span>
+
+        <span className="font-mono text-xs text-[#63716d]">
+          {difference < 0
+            ? `+${(Math.abs(difference) * 100).toFixed(1)} pp`
+            : isTie
+              ? "0.0 pp"
+              : `-${(difference * 100).toFixed(1)} pp`}
+        </span>
+      </div>
+    </article>
+  );
+}
 function MetricCard({
   label,
   value,
@@ -1145,10 +2025,7 @@ function MetricCard({
 }) {
   return (
     <article className="border border-[#d9e0dc] bg-[#fbfcfb] p-5 shadow-[0_2px_8px_rgba(24,35,33,0.03)]">
-      <div
-        className="mb-7 h-1 w-10"
-        style={{ backgroundColor: tone }}
-      />
+      <div className="mb-7 h-1 w-10" style={{ backgroundColor: tone }} />
 
       <p className="text-sm font-medium text-[#63716d]">{label}</p>
 
