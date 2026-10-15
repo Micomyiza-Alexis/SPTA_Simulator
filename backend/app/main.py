@@ -9,6 +9,7 @@ from pydantic import BaseModel
 from backend.app.api.dashboard import router as dashboard_router
 from backend.app.api.results import router as results_router
 from backend.app.api.robustness import router as robustness_router
+from backend.app.api.vup_evidence import router as vup_evidence_router
 
 
 # Load environment variables from backend/.env
@@ -83,4 +84,5 @@ def health_check():
 
 app.include_router(results_router)
 app.include_router(robustness_router)
+app.include_router(vup_evidence_router)
 app.include_router(dashboard_router)

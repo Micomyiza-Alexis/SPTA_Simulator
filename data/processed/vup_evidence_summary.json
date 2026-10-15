@@ -1,0 +1,188 @@
+{
+  "metadata": {
+    "title": "VUP programme evidence",
+    "source": "VUP household survey files supplied for the research project",
+    "master_households": 3771,
+    "component_files": 5,
+    "weighting": "Unweighted sample statistics; national estimates not asserted",
+    "generated_at_utc": "2026-10-15T19:05:48.401320+00:00",
+    "privacy_note": "Aggregate statistics only. No household IDs, person IDs, individual records, or individual financial amounts."
+  },
+  "overall_poverty_composition": [
+    {
+      "category": "Severely poor",
+      "count": 175,
+      "percent": 4.64
+    },
+    {
+      "category": "Moderately poor",
+      "count": 917,
+      "percent": 24.32
+    },
+    {
+      "category": "Non-poor",
+      "count": 2679,
+      "percent": 71.04
+    }
+  ],
+  "programme_components": [
+    {
+      "key": "direct_support",
+      "label": "Direct Support",
+      "unique_households": 999,
+      "duplicate_rows_removed": 4,
+      "poverty_composition": [
+        {
+          "category": "Severely poor",
+          "count": 28,
+          "percent": 2.8
+        },
+        {
+          "category": "Moderately poor",
+          "count": 185,
+          "percent": 18.52
+        },
+        {
+          "category": "Non-poor",
+          "count": 786,
+          "percent": 78.68
+        }
+      ]
+    },
+    {
+      "key": "classic_public_works",
+      "label": "Classic Public Works",
+      "unique_households": 922,
+      "duplicate_rows_removed": 3,
+      "poverty_composition": [
+        {
+          "category": "Severely poor",
+          "count": 73,
+          "percent": 7.92
+        },
+        {
+          "category": "Moderately poor",
+          "count": 265,
+          "percent": 28.74
+        },
+        {
+          "category": "Non-poor",
+          "count": 584,
+          "percent": 63.34
+        }
+      ]
+    },
+    {
+      "key": "expanded_public_works",
+      "label": "Expanded Public Works",
+      "unique_households": 791,
+      "duplicate_rows_removed": 5,
+      "poverty_composition": [
+        {
+          "category": "Severely poor",
+          "count": 42,
+          "percent": 5.31
+        },
+        {
+          "category": "Moderately poor",
+          "count": 224,
+          "percent": 28.32
+        },
+        {
+          "category": "Non-poor",
+          "count": 525,
+          "percent": 66.37
+        }
+      ]
+    },
+    {
+      "key": "nsds",
+      "label": "Nutrition-Sensitive Direct Support",
+      "unique_households": 675,
+      "duplicate_rows_removed": 0,
+      "poverty_composition": [
+        {
+          "category": "Severely poor",
+          "count": 29,
+          "percent": 4.3
+        },
+        {
+          "category": "Moderately poor",
+          "count": 194,
+          "percent": 28.74
+        },
+        {
+          "category": "Non-poor",
+          "count": 452,
+          "percent": 66.96
+        }
+      ]
+    },
+    {
+      "key": "financial_services",
+      "label": "Financial Services",
+      "unique_households": 585,
+      "duplicate_rows_removed": 7,
+      "poverty_composition": [
+        {
+          "category": "Severely poor",
+          "count": 17,
+          "percent": 2.91
+        },
+        {
+          "category": "Moderately poor",
+          "count": 107,
+          "percent": 18.29
+        },
+        {
+          "category": "Non-poor",
+          "count": 461,
+          "percent": 78.8
+        }
+      ]
+    }
+  ],
+  "overlap": {
+    "households_in_any_component": 3709,
+    "households_in_no_component": 62,
+    "households_in_multiple_components": 251,
+    "distribution_by_component_count": [
+      {
+        "components_per_household": 0,
+        "households": 62
+      },
+      {
+        "components_per_household": 1,
+        "households": 3458
+      },
+      {
+        "components_per_household": 2,
+        "households": 239
+      },
+      {
+        "components_per_household": 3,
+        "households": 12
+      },
+      {
+        "components_per_household": 4,
+        "households": 0
+      },
+      {
+        "components_per_household": 5,
+        "households": 0
+      }
+    ]
+  },
+  "validation": {
+    "master_ids_unique": true,
+    "all_component_ids_matched_to_master": true,
+    "component_ids_deduplicated_for_overlap": true,
+    "component_duplicate_rows": {
+      "direct_support": 4,
+      "classic_public_works": 3,
+      "expanded_public_works": 5,
+      "nsds": 0,
+      "financial_services": 7
+    }
+  }
+}

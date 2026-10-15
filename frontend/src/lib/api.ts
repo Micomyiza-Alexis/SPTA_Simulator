@@ -80,3 +80,97 @@ export async function getDashboard(): Promise<DashboardData> {
 
   return response.json() as Promise<DashboardData>;
 }
+export async function getModelRobustness(): Promise<ModelRobustness[]> {
+  const response = await fetch(
+    `${apiBaseUrl}/api/robustness/models`,
+    { cache: "no-store" },
+  );
+
+  if (!response.ok) {
+    throw new Error(
+      `Model robustness request failed: ${response.status}`,
+    );
+  }
+
+  const data = (await response.json()) as {
+    results: ModelRobustness[];
+  };
+
+  return data.results;
+}
+
+export async function getTargetingRobustness(): Promise<TargetingRobustness[]> {
+  const response = await fetch(
+    `${apiBaseUrl}/api/robustness/targeting`,
+    { cache: "no-store" },
+  );
+
+  if (!response.ok) {
+    throw new Error(
+      `Targeting robustness request failed: ${response.status}`,
+    );
+  }
+
+  const data = (await response.json()) as {
+    results: TargetingRobustness[];
+  };
+
+  return data.results;
+}
+
+export type VUPCategoryCount = {
+  category: string;
+  count: number;
+  percent: number | null;
+};
+
+export type VUPComponent = {
+  key: string;
+  label: string;
+  unique_households: number;
+  duplicate_rows_removed: number;
+  poverty_composition: VUPCategoryCount[];
+};
+
+export type VUPOverlapBand = {
+  components_per_household: number;
+  households: number;
+};
+
+export type VUPEvidence = {
+  metadata: {
+    title: string;
+    source: string;
+    master_households: number;
+    component_files: number;
+    weighting: string;
+    generated_at_utc: string;
+    privacy_note: string;
+  };
+  overall_poverty_composition: VUPCategoryCount[];
+  programme_components: VUPComponent[];
+  overlap: {
+    households_in_any_component: number;
+    households_in_no_component: number;
+    households_in_multiple_components: number;
+    distribution_by_component_count: VUPOverlapBand[];
+  };
+  validation: {
+    master_ids_unique: boolean;
+    all_component_ids_matched_to_master: boolean;
+    component_ids_deduplicated_for_overlap: boolean;
+    component_duplicate_rows: Record<string, number>;
+  };
+};
+
+export async function getVUPEvidence(): Promise<VUPEvidence> {
+  const response = await fetch(`${apiBaseUrl}/api/vup/evidence`, {
+    cache: "no-store",
+  });
+
+  if (!response.ok) {
+    throw new Error(`VUP evidence request failed: ${response.status}`);
+  }
+
+  return response.json() as Promise<VUPEvidence>;
+}

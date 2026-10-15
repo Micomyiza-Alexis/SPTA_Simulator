@@ -7,6 +7,8 @@ const navigation = [
   { label: "Simulator", href: "/simulator", shortLabel: "Simulate" },
   { label: "Households", href: "/households", shortLabel: "Records" },
   { label: "Scenarios", href: "/scenarios", shortLabel: "Compare" },
+  { label: "Robustness", href: "/robustness", shortLabel: "Robustness" },
+  { label: "VUP Evidence", href: "/vup-evidence", shortLabel: "VUP Evidence" },
 ];
 
 export function DashboardShell({ active, children }: { active: string; children: React.ReactNode }) {

@@ -29,6 +29,7 @@ data/processed/*
 !data/processed/master_strategy_results.csv
 !data/processed/model_robustness_summary.csv
 !data/processed/targeting_robustness_summary.csv
+!data/processed/vup_evidence_summary.json
 
 # Statistical microdata formats - NEVER commit
 *.dta
